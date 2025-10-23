@@ -1,35 +1,34 @@
 'use client';
 import { useState, useEffect, useMemo } from 'react';
 import {
-
   RefreshCw,
   DatabaseZap,
   Trash2,
-
   Search,
   CheckCircle,
   XCircle,
   Pencil,
   ToggleLeft,
   ToggleRight,
-  FileText, 
+  FileText,
+  PlusCircle,
+  Save, // Mengganti CheckCircle untuk Save
+  CornerDownLeft, // Untuk tombol Cancel
 } from 'lucide-react';
 
-
-
+// --- (INTERFACE AND MOCK DATA) ---
 interface KnowledgeItem {
-  id: string; 
-  title: string; 
-  content: string; 
-  category: string; 
-  isActive: boolean; 
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  isActive: boolean;
   lastUpdated: string;
 }
 
 interface KnowledgeViewProps {
   onBack: () => void;
 }
-
 
 const mockKnowledgeItems: KnowledgeItem[] = [
   {
@@ -47,7 +46,7 @@ const mockKnowledgeItems: KnowledgeItem[] = [
     content:
       'Mahasiswa wajib mengisi formulir online di UNPAD, melampirkan transkrip nilai, dan menunggu proses verifikasi selama 3 hari kerja. Dokumen dapat diambil di TU setelah menerima notifikasi.',
     category: 'Administrasi',
-    isActive: false, 
+    isActive: false,
     lastUpdated: '2025-10-16T09:15:00Z',
   },
   {
@@ -60,162 +59,260 @@ const mockKnowledgeItems: KnowledgeItem[] = [
     lastUpdated: '2025-10-15T14:00:00Z',
   },
 ];
+// --- (AKHIR MOCK DATA) ---
 
-// --- (AKHIR MOCK DATA BARU) ---
+// --- (SHARED INPUT FIELD COMPONENT) ---
+const InputField = ({ label, name, value, onChange, isEditing, type = 'text', rows = 5 }: {
+  label: string;
+  name: keyof Omit<KnowledgeItem, 'id' | 'lastUpdated'>;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  isEditing: boolean;
+  type?: string;
+  rows?: number;
+}) => (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-300 mb-1">
+      {label}
+    </label>
+    {isEditing ? (
+      type === 'textarea' ? (
+        <textarea
+          name={name}
+          value={value}
+          onChange={onChange}
+          rows={rows}
+          className="w-full bg-neutral-900 border border-neutral-600 rounded-lg p-3 text-sm focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        />
+      ) : (
+        <input
+          type={type}
+          name={name}
+          value={value}
+          onChange={onChange}
+          className="w-full bg-neutral-900 border border-neutral-600 rounded-lg p-3 text-sm focus:ring-blue-500 focus:border-blue-500 transition-colors"
+        />
+      )
+    ) : (
+      <div className="bg-neutral-700/50 p-3 rounded-lg text-sm whitespace-pre-wrap">
+        {value}
+      </div>
+    )}
+  </div>
+);
 
-// Component untuk Detail Knowledge Item (Form)
-const KnowledgeDetailForm = ({ item, onSave, onToggleStatus }: {
-  item: KnowledgeItem;
-  onSave: (updatedItem: KnowledgeItem) => void;
+
+// --- (COMPONENT: KNOWLEDGE DETAIL/ADD FORM) ---
+const KnowledgeDetailForm = ({
+  item,
+  mode,
+  onSave,
+  onCancel,
+  onToggleStatus,
+  onDelete
+}: {
+  item: KnowledgeItem | null; // null jika mode='add'
+  mode: 'view' | 'edit' | 'add';
+  onSave: (updatedItem: KnowledgeItem, isNew: boolean) => void;
+  onCancel: () => void;
   onToggleStatus: (id: string) => void;
+  onDelete: (id: string) => void;
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState(item);
+  const isEditing = mode === 'edit';
+  const isAdding = mode === 'add';
 
-  // Sinkronisasi data ketika item berubah
+  const initialFormData: KnowledgeItem = item || {
+    id: '', // Temporary or new ID
+    title: '',
+    content: '',
+    category: '',
+    isActive: true,
+    lastUpdated: new Date().toISOString(),
+  };
+
+  const [formData, setFormData] = useState<KnowledgeItem>(initialFormData);
+
+  // Sinkronisasi data ketika item atau mode berubah (hanya untuk view/edit)
   useEffect(() => {
-    setFormData(item);
-    setIsEditing(false); // Reset edit mode
-  }, [item]);
+    if (item && !isAdding) {
+      setFormData(item);
+    } else if (isAdding) {
+      // Reset form data for new item
+      setFormData(initialFormData);
+    }
+  }, [item, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
+    } as KnowledgeItem));
   };
 
   const handleSave = () => {
-    onSave({ ...formData, lastUpdated: new Date().toISOString() });
-    setIsEditing(false);
+    if (!formData.title || !formData.content) {
+      alert('Judul dan Konten tidak boleh kosong.');
+      return;
+    }
+
+    const  updatedItem = { ...formData };
+    const isNew = isAdding;
+
+    if (isNew) {
+      // Generate ID for new item
+      updatedItem.id = `doc-${Math.random().toString(36).substring(2, 9)}`;
+    }
+    updatedItem.lastUpdated = new Date().toISOString();
+
+    onSave(updatedItem, isNew);
+    if (!isNew) onCancel(); // Back to view mode after edit
   };
 
-  // Field Input Komponen
-  const InputField = ({ label, name, value, isEditing, type = 'text' }: {
-    label: string;
-    name: keyof KnowledgeItem;
-    value: string;
-    isEditing: boolean;
-    type?: string;
-  }) => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-gray-300 mb-1">
-        {label}
-      </label>
-      {isEditing ? (
-        type === 'textarea' ? (
-          <textarea
-            name={name}
-            value={value}
-            onChange={handleChange}
-            rows={5}
-            className="w-full bg-neutral-900 border border-neutral-600 rounded-lg p-3 text-sm focus:ring-blue-500 focus:border-blue-500 transition-colors"
-          />
-        ) : (
-          <input
-            type={type}
-            name={name}
-            value={value}
-            onChange={handleChange}
-            className="w-full bg-neutral-900 border border-neutral-600 rounded-lg p-3 text-sm focus:ring-blue-500 focus:border-blue-500 transition-colors"
-          />
-        )
-      ) : (
-        <div className="bg-neutral-700/50 p-3 rounded-lg text-sm whitespace-pre-wrap">
-          {value}
-        </div>
-      )}
-    </div>
-  );
+  const handleToggle = () => {
+    if (item) {
+      onToggleStatus(item.id);
+    }
+  };
+
+  if (!item && mode === 'view') {
+    return (
+      <div className='flex flex-col items-center justify-center h-full text-gray-500'>
+        <FileText className='w-16 h-16 mb-4' />
+        <h3 className='text-xl font-semibold'>Pilih Knowledge Item</h3>
+        <p>Pilih salah satu item pengetahuan dari daftar di sebelah kiri.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header Detail */}
-      <header className='p-4 border-b border-neutral-700 flex justify-between items-center flex-wrap gap-2'>
+      {/* Header Detail/Form */}
+      <header className='p-4 border-b border-neutral-700 flex justify-between items-center flex-wrap gap-2 flex-shrink-0'>
         <div>
           <h3 className='font-bold text-white flex items-center gap-2'>
-            <FileText className='w-5 h-5' /> {item.title}
+            <FileText className='w-5 h-5' />
+            {isAdding ? 'Tambah Informasi Baru' : (isEditing ? 'Edit Item' : 'Detail Item')}
           </h3>
-          <p className='text-xs text-gray-500'>ID: {item.id} | Kategori: {item.category}</p>
+          {item && !isAdding && (
+            <p className='text-xs text-gray-500'>ID: {item.id} | Kategori: {item.category}</p>
+          )}
         </div>
         <div className="flex gap-3">
-          {/* Tombol Status/Active-Inactive (Warna Hijau/Kuning) */}
-          <button
-            onClick={() => onToggleStatus(item.id)}
-            className={`flex items-center gap-2 font-semibold px-3 py-2 rounded-lg transition-colors duration-300 ${item.isActive ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'
-              }`}
-          >
-            {item.isActive ? (
-              <>
-                <ToggleLeft className='w-4 h-4' />
-                <span>Set Inactive</span>
-              </>
-            ) : (
-              <>
-                <ToggleRight className='w-4 h-4' />
-                <span>Set Active</span>
-              </>
-            )}
-          </button>
-
-          {/* Tombol Edit/Save (Warna Biru) */}
-          {isEditing ? (
-            <button
-              onClick={handleSave}
-              className='flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
-            >
-              <CheckCircle className='w-4 h-4' />
-              <span>Save</span>
-            </button>
+          {/* Tombol Aksi */}
+          {(isEditing || isAdding) ? (
+            <>
+              {/* SAVE */}
+              <button
+                onClick={handleSave}
+                className='flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
+              >
+                <Save className='w-4 h-4' />
+                <span>Save Item</span>
+              </button>
+              {/* CANCEL */}
+              <button
+                onClick={onCancel}
+                className='flex items-center gap-2 bg-neutral-600 hover:bg-neutral-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
+              >
+                <CornerDownLeft className='w-4 h-4' />
+                <span>Cancel</span>
+              </button>
+            </>
           ) : (
-            <button
-              onClick={() => setIsEditing(true)}
-              className='flex items-center gap-2 bg-blue-800 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
-            >
-              <Pencil className='w-4 h-4' />
-              <span>Edit</span>
-            </button>
+            <>
+              {/* TOGGLE STATUS */}
+              <button
+                onClick={handleToggle}
+                className={`flex items-center gap-2 font-semibold px-3 py-2 rounded-lg transition-colors duration-300 ${item?.isActive ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'
+                  }`}
+              >
+                {item?.isActive ? (
+                  <>
+                    <ToggleLeft className='w-4 h-4' />
+                    <span>Set Inactive</span>
+                  </>
+                ) : (
+                  <>
+                    <ToggleRight className='w-4 h-4' />
+                    <span>Set Active</span>
+                  </>
+                )}
+              </button>
+              {/* EDIT */}
+              <button
+                onClick={() => onCancel()} // onCancel will set mode to 'edit' in parent
+                className='flex items-center gap-2 bg-blue-800 hover:bg-blue-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
+              >
+                <Pencil className='w-4 h-4' />
+                <span>Edit</span>
+              </button>
+              {/* DELETE */}
+              <button
+                onClick={() => { if (window.confirm('Hapus item pengetahuan ini secara permanen?')) onDelete(item!.id); }}
+                className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
+              >
+                <Trash2 className='w-4 h-4' />
+                <span>Delete</span>
+              </button>
+            </>
           )}
-
-          {/* Tombol Delete (Warna Merah) */}
-          <button
-            onClick={() => { if (window.confirm('Hapus item pengetahuan ini secara permanen?')) onSave(item); }} // Mengganti onSave dengan callback delete yang sebenarnya nanti
-            className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
-          >
-            <Trash2 className='w-4 h-4' />
-            <span>Delete</span>
-          </button>
         </div>
       </header>
 
-      {/* Konten Detail/Form */}
+      {/* Konten Detail/Form (Scrollable Area) */}
+      {/* Perbaikan: flex-1 dan overflow-y-auto memastikan konten ini scrollable */}
       <div className='flex-1 overflow-y-auto p-6'>
-        {/* Status Indikator */}
-        <div className={`mb-5 p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${item.isActive ? 'bg-green-500/20 text-green-300 border border-green-700' : 'bg-red-500/20 text-red-300 border border-red-700'}`}>
-          {item.isActive ? <CheckCircle className='w-4 h-4' /> : <XCircle className='w-4 h-4' />}
-          Status: <span className='font-bold'>{item.isActive ? 'Aktif' : 'Tidak Aktif'}</span> - Item ini {item.isActive ? 'digunakan' : 'tidak digunakan'} oleh chatbot untuk menjawab.
-        </div>
+        {/* Status Indikator (Hide for Add mode) */}
+        {!isAdding && (
+          <div className={`mb-5 p-3 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${item?.isActive ? 'bg-green-500/20 text-green-300 border border-green-700' : 'bg-red-500/20 text-red-300 border border-red-700'}`}>
+            {item?.isActive ? <CheckCircle className='w-4 h-4' /> : <XCircle className='w-4 h-4' />}
+            Status: <span className='font-bold'>{item?.isActive ? 'Aktif' : 'Tidak Aktif'}</span> - Item ini {item?.isActive ? 'digunakan' : 'tidak digunakan'} oleh chatbot untuk menjawab.
+          </div>
+        )}
 
         <InputField
           label="Judul/Topik"
           name="title"
           value={formData.title}
-          isEditing={isEditing}
+          onChange={handleChange}
+          isEditing={isEditing || isAdding}
         />
         <InputField
           label="Kategori"
           name="category"
           value={formData.category}
-          isEditing={isEditing}
+          onChange={handleChange}
+          isEditing={isEditing || isAdding}
         />
         <InputField
           label="Konten Pengetahuan"
           name="content"
           value={formData.content}
-          isEditing={isEditing}
+          onChange={handleChange}
+          isEditing={isEditing || isAdding}
           type="textarea"
+          rows={7} // Menambah baris agar lebih leluasa
         />
 
-        <div className="mt-4 text-xs text-gray-500">
-          Terakhir Diperbarui: {new Date(item.lastUpdated).toLocaleString()}
+        {/* Status Checkbox untuk Add Mode */}
+        {isAdding && (
+          <div className="mb-6 flex items-center">
+            <input
+              type="checkbox"
+              id="isActive"
+              name="isActive"
+              checked={formData.isActive}
+              onChange={handleChange}
+              className="w-4 h-4 text-blue-600 bg-neutral-700 border-neutral-600 rounded focus:ring-blue-500"
+            />
+            <label htmlFor="isActive" className="ml-2 text-sm font-medium text-gray-300">Aktifkan item ini segera</label>
+          </div>
+        )}
+
+        {/* Footer (di luar area scroll) */}
+        <div className="mt-4 text-xs text-gray-500 flex-shrink-0">
+          Terakhir Diperbarui: {new Date(formData.lastUpdated).toLocaleString()}
         </div>
       </div>
     </div>
@@ -223,12 +320,13 @@ const KnowledgeDetailForm = ({ item, onSave, onToggleStatus }: {
 };
 
 
-// Main Component
+// --- (MAIN COMPONENT: KNOWLEDGE VIEW) ---
 export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   const [knowledgeItems, setKnowledgeItems] =
     useState<KnowledgeItem[]>(mockKnowledgeItems);
   const [selectedItem, setSelectedItem] =
-    useState<KnowledgeItem | null>(mockKnowledgeItems[0] || null); // Pilih item pertama sebagai default
+    useState<KnowledgeItem | null>(mockKnowledgeItems[0] || null);
+  const [mode, setMode] = useState<'view' | 'edit' | 'add'>('view'); // State baru untuk mode tampilan
 
   const [isUpdatingRag, setIsUpdatingRag] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -245,10 +343,21 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     );
   }, [knowledgeItems, searchQuery]);
 
+  // Handler for list item click
+  const handleSelectItem = (item: KnowledgeItem) => {
+    setSelectedItem(item);
+    setMode('view');
+  };
+  
+  // Handler for "Add Info" button
+  const handleAddInfoClick = () => {
+    setSelectedItem(null); // Clear selected item
+    setMode('add');
+  };
+
   const handleUpdateRag = () => {
     setIsUpdatingRag(true);
     console.log('Memulai update RAG...');
-    // Simulasi proses API
     setTimeout(() => {
       setIsUpdatingRag(false);
       console.log('Update RAG selesai.');
@@ -256,16 +365,41 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     }, 5000);
   };
 
-  const handleSaveItem = (updatedItem: KnowledgeItem) => {
-    setKnowledgeItems((prev) =>
-      prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
-    );
-    setSelectedItem(updatedItem);
-    console.log(`Item ${updatedItem.id} disimpan.`);
-    alert(`Item pengetahuan "${updatedItem.title}" berhasil diperbarui.`);
+  const handleSaveItem = (updatedItem: KnowledgeItem, isNew: boolean) => {
+    if (isNew) {
+        setKnowledgeItems((prev) => [...prev, updatedItem]);
+        setSelectedItem(updatedItem);
+        alert(`Item pengetahuan "${updatedItem.title}" berhasil ditambahkan.`);
+    } else {
+        setKnowledgeItems((prev) =>
+          prev.map((item) => (item.id === updatedItem.id ? updatedItem : item))
+        );
+        setSelectedItem(updatedItem);
+        alert(`Item pengetahuan "${updatedItem.title}" berhasil diperbarui.`);
+    }
+    setMode('view');
   };
 
+  const handleCancelAction = () => {
+    if (mode === 'add') {
+      // If adding, reset to the first item or null if list is empty
+      setSelectedItem(knowledgeItems[0] || null);
+      setMode('view');
+    } else if (mode === 'edit') {
+      // If editing, switch back to view mode
+      setMode('view');
+    } else if (mode === 'view' && selectedItem) {
+      // Logic for Edit button click (which calls onCancel)
+      setMode('edit');
+    }
+  };
 
+  const handleDeleteItem = (id: string) => {
+    setKnowledgeItems((prev) => prev.filter((i) => i.id !== id));
+    setSelectedItem(knowledgeItems.find(i => i.id !== id) || null);
+    setMode('view');
+    console.log(`Item ${id} dihapus.`);
+  };
 
   const handleToggleStatus = (id: string) => {
     setKnowledgeItems((prev) =>
@@ -273,7 +407,6 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
         item.id === id ? { ...item, isActive: !item.isActive, lastUpdated: new Date().toISOString() } : item
       )
     );
-    // Update selected item state
     setSelectedItem((prev) => {
       if (prev && prev.id === id) {
         return { ...prev, isActive: !prev.isActive, lastUpdated: new Date().toISOString() };
@@ -296,37 +429,27 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
         </header>
 
         {/* Quick Actions */}
-        <section className='grid grid-cols-1 md:grid-cols-2 gap-6 mb-8'>
+        <section className='grid grid-cols-1 md:grid-cols-3 gap-6 mb-8'>
           {/* Change to History View Button Card */}
           <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
             <div>
-              <h2 className='text-lg font-semibold text-white'>
-                History View
-              </h2>
-              <p className='text-sm text-gray-400 mt-1'>
-                Mengubah tampilan ke riwayat percakapan user
-              </p>
+              <h2 className='text-lg font-semibold text-white'>History View</h2>
+              <p className='text-sm text-gray-400 mt-1'>Riwayat percakapan user</p>
             </div>
             <button
               onClick={onBack}
               className='flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors duration-300'
             >
-              <>
-                <RefreshCw className='w-5 h-5' />
-                <span>Change to History view</span>
-              </>
+              <RefreshCw className='w-5 h-5' />
+              <span>History</span>
             </button>
           </div>
 
           {/* Update RAG Button Card */}
           <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
             <div>
-              <h2 className='text-lg font-semibold text-white'>
-                Update Pengetahuan (RAG)
-              </h2>
-              <p className='text-sm text-gray-400 mt-1'>
-                Perbarui model RAG dengan data hasil scraping terbaru.
-              </p>
+              <h2 className='text-lg font-semibold text-white'>Update RAG</h2>
+              <p className='text-sm text-gray-400 mt-1'>Perbarui model dengan data terbaru.</p>
             </div>
             <button
               onClick={handleUpdateRag}
@@ -346,13 +469,30 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
               )}
             </button>
           </div>
+
+          {/* Add Information Button Card (New) */}
+          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
+            <div>
+              <h2 className='text-lg font-semibold text-white'>Tambah Informasi</h2>
+              <p className='text-sm text-gray-400 mt-1'>Input item pengetahuan baru secara manual.</p>
+            </div>
+            <button
+              onClick={handleAddInfoClick}
+              className='flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors duration-300'
+              disabled={mode !== 'view'} // Disable if already editing or adding
+            >
+              <PlusCircle className='w-5 h-5' />
+              <span>Add Info</span>
+            </button>
+          </div>
+
         </section>
 
         {/* Knowledge Base Section */}
         <section className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
           {/* Knowledge Item List */}
           <div className='lg:col-span-1 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
-            <div className='p-4 border-b border-neutral-700'>
+            <div className='p-4 border-b border-neutral-700 flex-shrink-0'>
               <h2 className='text-lg font-semibold flex items-center mb-4 gap-2'>
                 <FileText /> Knowledge Item List
               </h2>
@@ -364,16 +504,20 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className='w-full bg-neutral-900 text-gray-200 rounded-lg border border-neutral-600 focus:ring-1 focus:ring-blue-500 focus:outline-none pl-10 pr-4 py-2 text-sm transition-colors'
+                  disabled={mode !== 'view'}
                 />
               </div>
             </div>
+
+            {/* List Body */}
             <div className='overflow-y-auto flex-1'>
               {filteredItems.length > 0 ? (
                 filteredItems.map((item) => (
                   <button
                     key={item.id}
-                    onClick={() => setSelectedItem(item)}
-                    className={`w-full text-left p-4 border-l-4 hover:bg-neutral-700/50 transition-colors duration-200 ${selectedItem?.id === item.id
+                    onClick={() => handleSelectItem(item)}
+                    disabled={mode !== 'view'} // Disable list interaction during add/edit
+                    className={`w-full text-left p-4 border-l-4 hover:bg-neutral-700/50 transition-colors duration-200 ${selectedItem?.id === item.id && mode !== 'add'
                         ? 'bg-blue-600/20 border-blue-500'
                         : 'border-transparent'
                       }`}
@@ -404,24 +548,17 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
             </div>
           </div>
 
-          {/* Knowledge Item Detail/Form */}
+          {/* Knowledge Item Detail/Form (RIGHT PANEL) */}
           <div className='lg:col-span-2 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
-            {selectedItem ? (
-              <KnowledgeDetailForm
-                item={selectedItem}
-                onSave={handleSaveItem}
-                onToggleStatus={handleToggleStatus}
-              />
-            ) : (
-              <div className='flex flex-col items-center justify-center h-full text-gray-500'>
-                <FileText className='w-16 h-16 mb-4' />
-                <h3 className='text-xl font-semibold'>Pilih Knowledge Item</h3>
-                <p>
-                  Pilih salah satu item pengetahuan dari daftar di sebelah kiri untuk
-                  melihat atau mengedit detailnya.
-                </p>
-              </div>
-            )}
+            {/* Tampilkan form untuk mode 'add' atau 'edit' atau 'view' */}
+            <KnowledgeDetailForm
+              item={mode === 'add' ? null : selectedItem} // Pass null if adding new
+              mode={mode}
+              onSave={handleSaveItem}
+              onCancel={handleCancelAction}
+              onToggleStatus={handleToggleStatus}
+              onDelete={handleDeleteItem}
+            />
           </div>
         </section>
       </div>
