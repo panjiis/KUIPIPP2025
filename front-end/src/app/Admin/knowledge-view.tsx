@@ -12,8 +12,8 @@ import {
   ToggleRight,
   FileText,
   PlusCircle,
-  Save, // Mengganti CheckCircle untuk Save
-  CornerDownLeft, // Untuk tombol Cancel
+  Save, 
+  CornerDownLeft, 
 } from 'lucide-react';
 
 // --- (INTERFACE AND MOCK DATA) ---
@@ -102,7 +102,7 @@ const InputField = ({ label, name, value, onChange, isEditing, type = 'text', ro
 );
 
 
-// --- (COMPONENT: KNOWLEDGE DETAIL/ADD FORM) ---
+
 const KnowledgeDetailForm = ({
   item,
   mode,
@@ -111,7 +111,7 @@ const KnowledgeDetailForm = ({
   onToggleStatus,
   onDelete
 }: {
-  item: KnowledgeItem | null; // null jika mode='add'
+  item: KnowledgeItem | null; 
   mode: 'view' | 'edit' | 'add';
   onSave: (updatedItem: KnowledgeItem, isNew: boolean) => void;
   onCancel: () => void;
@@ -122,7 +122,7 @@ const KnowledgeDetailForm = ({
   const isAdding = mode === 'add';
 
   const initialFormData: KnowledgeItem = item || {
-    id: '', // Temporary or new ID
+    id: '',
     title: '',
     content: '',
     category: '',
@@ -132,15 +132,14 @@ const KnowledgeDetailForm = ({
 
   const [formData, setFormData] = useState<KnowledgeItem>(initialFormData);
 
-  // Sinkronisasi data ketika item atau mode berubah (hanya untuk view/edit)
+ 
   useEffect(() => {
     if (item && !isAdding) {
       setFormData(item);
     } else if (isAdding) {
-      // Reset form data for new item
       setFormData(initialFormData);
     }
-  }, [item, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [item, mode]); 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -166,7 +165,7 @@ const KnowledgeDetailForm = ({
     updatedItem.lastUpdated = new Date().toISOString();
 
     onSave(updatedItem, isNew);
-    if (!isNew) onCancel(); // Back to view mode after edit
+    if (!isNew) onCancel(); 
   };
 
   const handleToggle = () => {
@@ -187,7 +186,7 @@ const KnowledgeDetailForm = ({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header Detail/Form */}
+   
       <header className='p-4 border-b border-neutral-700 flex justify-between items-center flex-wrap gap-2 flex-shrink-0'>
         <div>
           <h3 className='font-bold text-white flex items-center gap-2'>
@@ -199,10 +198,10 @@ const KnowledgeDetailForm = ({
           )}
         </div>
         <div className="flex gap-3">
-          {/* Tombol Aksi */}
+      
           {(isEditing || isAdding) ? (
             <>
-              {/* SAVE */}
+      
               <button
                 onClick={handleSave}
                 className='flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
@@ -210,7 +209,7 @@ const KnowledgeDetailForm = ({
                 <Save className='w-4 h-4' />
                 <span>Save Item</span>
               </button>
-              {/* CANCEL */}
+           
               <button
                 onClick={onCancel}
                 className='flex items-center gap-2 bg-neutral-600 hover:bg-neutral-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
@@ -221,7 +220,7 @@ const KnowledgeDetailForm = ({
             </>
           ) : (
             <>
-              {/* TOGGLE STATUS */}
+         
               <button
                 onClick={handleToggle}
                 className={`flex items-center gap-2 font-semibold px-3 py-2 rounded-lg transition-colors duration-300 ${item?.isActive ? 'bg-yellow-600 hover:bg-yellow-500 text-white' : 'bg-green-600 hover:bg-green-500 text-white'
@@ -260,10 +259,9 @@ const KnowledgeDetailForm = ({
         </div>
       </header>
 
-      {/* Konten Detail/Form (Scrollable Area) */}
-      {/* Perbaikan: flex-1 dan overflow-y-auto memastikan konten ini scrollable */}
+     
       <div className='flex-1 overflow-y-auto p-6'>
-        {/* Status Indikator (Hide for Add mode) */}
+   
         {!isAdding && (
           <div className={`mb-5 p-3 rounded-lg text-sm font-medium flex items-center gap-2 flex-shrink-0 ${item?.isActive ? 'bg-green-500/20 text-green-300 border border-green-700' : 'bg-red-500/20 text-red-300 border border-red-700'}`}>
             {item?.isActive ? <CheckCircle className='w-4 h-4' /> : <XCircle className='w-4 h-4' />}
@@ -292,10 +290,10 @@ const KnowledgeDetailForm = ({
           onChange={handleChange}
           isEditing={isEditing || isAdding}
           type="textarea"
-          rows={7} // Menambah baris agar lebih leluasa
+          rows={7} 
         />
 
-        {/* Status Checkbox untuk Add Mode */}
+        
         {isAdding && (
           <div className="mb-6 flex items-center">
             <input
@@ -326,7 +324,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     useState<KnowledgeItem[]>(mockKnowledgeItems);
   const [selectedItem, setSelectedItem] =
     useState<KnowledgeItem | null>(mockKnowledgeItems[0] || null);
-  const [mode, setMode] = useState<'view' | 'edit' | 'add'>('view'); // State baru untuk mode tampilan
+  const [mode, setMode] = useState<'view' | 'edit' | 'add'>('view'); 
 
   const [isUpdatingRag, setIsUpdatingRag] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -349,9 +347,9 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     setMode('view');
   };
   
-  // Handler for "Add Info" button
+
   const handleAddInfoClick = () => {
-    setSelectedItem(null); // Clear selected item
+    setSelectedItem(null);
     setMode('add');
   };
 
@@ -382,14 +380,14 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
 
   const handleCancelAction = () => {
     if (mode === 'add') {
-      // If adding, reset to the first item or null if list is empty
+ 
       setSelectedItem(knowledgeItems[0] || null);
       setMode('view');
     } else if (mode === 'edit') {
-      // If editing, switch back to view mode
+     
       setMode('view');
     } else if (mode === 'view' && selectedItem) {
-      // Logic for Edit button click (which calls onCancel)
+ 
       setMode('edit');
     }
   };
@@ -479,7 +477,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
             <button
               onClick={handleAddInfoClick}
               className='flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors duration-300'
-              disabled={mode !== 'view'} // Disable if already editing or adding
+              disabled={mode !== 'view'}
             >
               <PlusCircle className='w-5 h-5' />
               <span>Add Info</span>
@@ -516,7 +514,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
                   <button
                     key={item.id}
                     onClick={() => handleSelectItem(item)}
-                    disabled={mode !== 'view'} // Disable list interaction during add/edit
+                    disabled={mode !== 'view'} 
                     className={`w-full text-left p-4 border-l-4 hover:bg-neutral-700/50 transition-colors duration-200 ${selectedItem?.id === item.id && mode !== 'add'
                         ? 'bg-blue-600/20 border-blue-500'
                         : 'border-transparent'
@@ -548,11 +546,11 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
             </div>
           </div>
 
-          {/* Knowledge Item Detail/Form (RIGHT PANEL) */}
+
           <div className='lg:col-span-2 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
-            {/* Tampilkan form untuk mode 'add' atau 'edit' atau 'view' */}
+        
             <KnowledgeDetailForm
-              item={mode === 'add' ? null : selectedItem} // Pass null if adding new
+              item={mode === 'add' ? null : selectedItem} 
               mode={mode}
               onSave={handleSaveItem}
               onCancel={handleCancelAction}
@@ -565,3 +563,4 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     </div>
   );
 }
+
