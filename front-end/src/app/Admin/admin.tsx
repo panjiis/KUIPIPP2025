@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import {
   MessageSquare,
   RefreshCw,
-  DatabaseZap,
   Trash2,
   AlertTriangle,
   FileText,
@@ -12,6 +11,7 @@ import {
   Search,
   Bot,
 } from 'lucide-react';
+import KnowledgeView from './knowledge-view';
 
 interface Attachment {
   type: string;
@@ -37,7 +37,6 @@ interface Conversation {
 }
 
 // --- (MOCK DATA) ---
-// Ganti ini dengan data asli dari API Anda nanti
 const mockConversations: Conversation[] = [
   {
     id: 'conv-001',
@@ -110,39 +109,18 @@ export default function AdminDashboard() {
     useState<Conversation[]>(mockConversations);
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | null>(null);
-  const [isScraping, setIsScraping] = useState(false);
-  const [isUpdatingRag, setIsUpdatingRag] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  const [searchQuery, setSearchQuery] = useState('');
 
-  const handleStartScraping = () => {
-    setIsScraping(true);
-    console.log('Memulai proses scraping...');
-    // Simulasi proses API
-    setTimeout(() => {
-      setIsScraping(false);
-      console.log('Scraping selesai.');
-      alert('Proses scraping data sumber baru telah selesai.');
-    }, 3000);
-  };
+  const [mounted, setMounted] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showKnowledgeView, setShowKnowledgeView] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   const filteredConversations = conversations.filter(
     (conv) =>
       conv.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       conv.userId.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const handleUpdateRag = () => {
-    setIsUpdatingRag(true);
-    console.log('Memulai update RAG...');
-    // Simulasi proses API
-    setTimeout(() => {
-      setIsUpdatingRag(false);
-      console.log('Update RAG selesai.');
-      alert('Model RAG telah berhasil diperbarui dengan data terbaru.');
-    }, 5000);
-  };
 
   const handleDeleteChat = (id: string) => {
     if (
@@ -152,9 +130,15 @@ export default function AdminDashboard() {
     ) {
       setConversations((prev) => prev.filter((c) => c.id !== id));
       setSelectedConversation(null);
-      console.log(`Percakapan ${id} dihapus.`);
     }
   };
+
+  const handleViewChange = () => setShowKnowledgeView(!showKnowledgeView);
+
+  // 🔁 Switch View ke KnowledgeView
+  if (showKnowledgeView) {
+    return <KnowledgeView onBack={handleViewChange} />;
+  }
 
   return (
     <div className='bg-gray-900 min-h-screen text-gray-200 font-sans p-4 sm:p-6 lg:p-8'>
@@ -169,95 +153,58 @@ export default function AdminDashboard() {
           </p>
         </header>
 
-        {/* Quick Actions */}
-        <section className='grid grid-cols-1 md:grid-cols-2 gap-6 mb-8'>
-          {/* Scrapping Button Card */}
-          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
-            <div>
+        {/* Quick Actions - DIUBAH MENJADI HANYA 1 KOLOM */}
+        <section className='grid grid-cols-1 gap-6 mb-8'>
+          {/* Knowledge View Button Card - DIUBAH */}
+          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between'>
+            <div className='mb-4 sm:mb-0'>
               <h2 className='text-lg font-semibold text-white'>
-                Scraping Sumber Data
+                Knowledge View
               </h2>
               <p className='text-sm text-gray-400 mt-1'>
-                Mulai proses scraping untuk memperbarui informasi dari sumber
-                eksternal.
+                Ganti ke tampilan update pengetahuan
               </p>
             </div>
+            {/* Tombol Change to Knowledge View dibuat full width di mobile dan fleksibel di desktop */}
             <button
-              onClick={handleStartScraping}
-              disabled={isScraping}
-              className='flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors duration-300 disabled:bg-neutral-600 disabled:cursor-not-allowed'
+              onClick={handleViewChange}
+              className='flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors w-full sm:w-auto' // w-full di sini
             >
-              {isScraping ? (
-                <>
-                  <RefreshCw className='w-5 h-5 animate-spin' />
-                  <span>Memproses...</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCw className='w-5 h-5' />
-                  <span>Mulai Scraping</span>
-                </>
-              )}
+              <RefreshCw className='w-5 h-5' />
+              <span>Change to Knowledge View</span>
             </button>
           </div>
 
-          {/* Update RAG Button Card */}
-          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
-            <div>
-              <h2 className='text-lg font-semibold text-white'>
-                Update Pengetahuan (RAG)
-              </h2>
-              <p className='text-sm text-gray-400 mt-1'>
-                Perbarui model RAG dengan data hasil scraping terbaru.
-              </p>
-            </div>
-            <button
-              onClick={handleUpdateRag}
-              disabled={isUpdatingRag}
-              className='flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors duration-300 disabled:bg-neutral-600 disabled:cursor-not-allowed'
-            >
-              {isUpdatingRag ? (
-                <>
-                  <DatabaseZap className='w-5 h-5 animate-spin' />
-                  <span>Memperbarui...</span>
-                </>
-              ) : (
-                <>
-                  <DatabaseZap className='w-5 h-5' />
-                  <span>Update RAG</span>
-                </>
-              )}
-            </button>
-          </div>
+
         </section>
 
-        {/* Chat History Section */}
+        {/* Chat History */}
         <section className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-          {/* Conversation List */}
+          {/* List */}
           <div className='lg:col-span-1 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
             <div className='p-4 border-b border-neutral-700'>
               <h2 className='text-lg font-semibold flex items-center mb-4 gap-2'>
                 <MessageSquare /> Riwayat Percakapan
               </h2>
               <div className='relative'>
-                <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none' />
+                <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500' />
                 <input
                   type='text'
                   placeholder='Cari ID percakapan atau user...'
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className='w-full bg-neutral-900 text-gray-200 rounded-lg border border-neutral-600 focus:ring-1 focus:ring-blue-500 focus:outline-none pl-10 pr-4 py-2 text-sm transition-colors'
+                  className='w-full bg-neutral-900 text-gray-200 rounded-lg border border-neutral-600 pl-10 pr-4 py-2 text-sm'
                 />
               </div>
             </div>
+
             <div className='overflow-y-auto flex-1'>
-              {/* Perubahan: Mapping dari `filteredConversations` */}
               {filteredConversations.length > 0 ? (
                 filteredConversations.map((conv) => (
                   <button
                     key={conv.id}
                     onClick={() => setSelectedConversation(conv)}
-                    className={`w-full text-left p-4 border-l-4 hover:bg-neutral-700/50 transition-colors duration-200 ${
+                    className={`w-full text-left p-4 border-l-4 hover:bg-neutral-700/50 ${
                       selectedConversation?.id === conv.id
                         ? 'bg-blue-600/20 border-blue-500'
                         : 'border-transparent'
@@ -287,7 +234,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Conversation Detail */}
+          {/* Detail */}
           <div className='lg:col-span-2 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
             {selectedConversation ? (
               <>
@@ -300,12 +247,13 @@ export default function AdminDashboard() {
                   </div>
                   <button
                     onClick={() => handleDeleteChat(selectedConversation.id)}
-                    className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-2 rounded-lg transition-colors duration-300'
+                    className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-2 rounded-lg'
                   >
                     <Trash2 className='w-4 h-4' />
                     <span>Hapus</span>
                   </button>
                 </header>
+
                 <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-5'>
                   {selectedConversation.messages.map((msg, index) => (
                     <div
@@ -337,7 +285,6 @@ export default function AdminDashboard() {
                         }`}
                       >
                         <p>{msg.text}</p>
-                        {/* Attachment Handling */}
                         {msg.attachment && (
                           <div
                             className={`mt-3 p-3 rounded-lg border ${
