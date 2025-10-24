@@ -14,11 +14,13 @@ exports.getAllKnowledge = async (req, res) => {
 // POST /api/knowledge
 exports.createKnowledge = async (req, res) => {
   try {
-    const { topic, content } = req.body;
-    if (!topic || !content) {
-      return res.status(400).json({ error: true, message: 'Topik dan Konten diperlukan' });
+    // --- UBAH DI SINI ---
+    const { topic, content, category } = req.body;
+    if (!topic || !content || !category) {
+      return res.status(400).json({ error: true, message: 'Topik, Konten, dan Kategori diperlukan' });
     }
-    const newData = new KnowledgeBase({ topic, content });
+    // 'status' tidak perlu ditambahkan di sini, karena model sudah menanganinya secara default
+    const newData = new KnowledgeBase({ topic, content, category });
     await newData.save();
     res.status(201).json({ error: false, message: 'Data berhasil dibuat', data: newData });
   } catch (error) {
@@ -30,12 +32,13 @@ exports.createKnowledge = async (req, res) => {
 exports.updateKnowledge = async (req, res) => {
   try {
     const { id } = req.params;
-    const { topic, content } = req.body;
+    // --- UBAH DI SINI ---
+    const { topic, content, category } = req.body; // Status tidak diubah di sini
     
     const updatedData = await KnowledgeBase.findByIdAndUpdate(
       id, 
-      { topic, content }, 
-      { new: true, runValidators: true } // 'new: true' agar mengembalikan dokumen yg sdh diupdate
+      { topic, content, category }, // Tambahkan category ke update
+      { new: true, runValidators: true }
     );
     
     if (!updatedData) {
@@ -46,6 +49,40 @@ exports.updateKnowledge = async (req, res) => {
     res.status(500).json({ error: true, message: error.message });
   }
 };
+
+// --- FUNGSI BARU DI SINI ---
+/**
+ * @description Mengubah status (ACTIVE <-> INACTIVE)
+ */
+exports.toggleKnowledgeStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const knowledgeItem = await KnowledgeBase.findById(id);
+
+    if (!knowledgeItem) {
+      return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
+    }
+
+    // Logika toggle: jika ACTIVE jadi INACTIVE, dan sebaliknya
+    const newStatus = knowledgeItem.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+
+    const updatedItem = await KnowledgeBase.findByIdAndUpdate(
+      id,
+      { status: newStatus },
+      { new: true }
+    );
+
+    res.status(200).json({ 
+      error: false, 
+      message: `Status berhasil diubah menjadi ${newStatus}`, 
+      data: updatedItem 
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: true, message: error.message });
+  }
+};
+
 
 // DELETE /api/knowledge/:id
 exports.deleteKnowledge = async (req, res) => {

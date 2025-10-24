@@ -6,7 +6,9 @@ const {
   login, 
   logout, // Pastikan 'logout' diimpor
   getChatHistory, 
-  deleteOldChats 
+  deleteOldChats,
+  getAllChats,
+  deleteChatById 
 } = require("../controller/adminController.js");
 
 // 2. Impor middleware keamanan Anda
@@ -39,6 +41,9 @@ adminRouter.get('/chats/history', isAdmin, getChatHistory);
 
 // Rute untuk menghapus chat lama (diproteksi)
 adminRouter.delete('/chats/delete-old', isAdmin, deleteOldChats);
+
+adminRouter.get('/chats/all', isAdmin, getAllChats);
+adminRouter.delete('/chats/:id', isAdmin, deleteChatById);
 
 
 module.exports = adminRouter;

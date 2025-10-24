@@ -108,6 +108,40 @@ const logout = (req, res) => {
   });
 };
 
+const getAllChats = async (req, res) => {
+  try {
+    // Cari semua chat, pilih field yang penting, dan urutkan dari yang terbaru
+    const chats = await Chat.find({})
+      .select('_id status createdAt') // Ambil ID, status, dan waktu dibuat
+      .sort({ createdAt: -1 }); // Urutkan dari yang paling baru
+
+    res.status(200).json({ error: false, data: chats });
+  } catch (error) {
+    res.status(500).json({ error: true, message: error.message });
+  }
+};
+
+const deleteChatById = async (req, res) => {
+  try {
+    const { id } = req.params; // Mengambil ID dari parameter URL
+
+    // 1. Hapus dokumen chat dari koleksi 'chat'
+    const deletedChat = await Chat.findByIdAndDelete(id);
+
+    if (!deletedChat) {
+      return res.status(404).json({ error: true, message: 'Chat tidak ditemukan' });
+    }
+
+    // 2. Hapus semua pesan yang terkait dengan chat tersebut dari koleksi 'message'
+    await Message.deleteMany({ chatId: id.toString() });
+
+    res.status(200).json({ error: false, message: `Chat ID ${id} dan semua pesannya berhasil dihapus.` });
+  } catch (error) {
+    console.error(`Error saat menghapus chat ${req.params.id}:`, error);
+    res.status(500).json({ error: true, message: error.message });
+  }
+};
+
 /**
  * @description Mendapatkan riwayat chat berdasarkan chatId
  */
@@ -170,15 +204,12 @@ const getChatHistory = async (req, res) => {
     }
 };
 
-/**
- * @description Menghapus chat lama (status NONACTIVE & > 7 hari)
- */
 const deleteOldChats = async (req, res) => {
   try {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Ambil semua chat yang memenuhi kondisi
+    // Ambil semua chat yang memenuhi kondisi untuk dihapus
     const oldChats = await Chat.find({
       status: "NONACTIVE",
       updatedAt: { $lte: sevenDaysAgo }
@@ -186,16 +217,14 @@ const deleteOldChats = async (req, res) => {
 
     if (oldChats.length === 0) {
       return res.status(200).json({
-        message: 'Tidak ada chat yang perlu dihapus.'
+        message: 'Tidak ada chat lama yang perlu dihapus.'
       });
     }
 
-    // --- PENYESUAIAN DIMULAI DI SINI ---
-
-    // 1. Buat array berisi ObjectId untuk menghapus dari koleksi 'chat'
+    // Buat array berisi ObjectId untuk menghapus dari koleksi 'chat'
     const chatObjectIds = oldChats.map(chat => chat._id);
 
-    // 2. Buat array berisi String untuk menghapus dari koleksi 'message'
+    // Buat array berisi String untuk menghapus dari koleksi 'message'
     const chatStringIds = oldChats.map(chat => chat._id.toString());
 
     // Hapus semua message yang memiliki chatId (String)
@@ -204,14 +233,12 @@ const deleteOldChats = async (req, res) => {
     // Hapus chat yang memenuhi kondisi (menggunakan ObjectId)
     await Chat.deleteMany({ _id: { $in: chatObjectIds } });
     
-    // --- PENYESUAIAN SELESAI ---
-
     res.status(200).json({
-      message: `Berhasil menghapus ${chatObjectIds.length} chat dan pesan terkait.`,
-      deletedChatIds: chatStringIds // Kirim string ID agar mudah dibaca di JSON
+      message: `Berhasil menghapus ${chatObjectIds.length} chat lama dan pesan terkait.`,
+      deletedChatIds: chatStringIds
     });
   } catch (error) {
-    console.error('Error saat menghapus chat:', error);
+    console.error('Error saat menghapus chat lama:', error);
     res.status(500).json({ error: 'Gagal menghapus chat lama' });
   }
 };
@@ -221,5 +248,7 @@ module.exports = {
   logout,
   createAccount, 
   getChatHistory, 
-  deleteOldChats 
+  deleteOldChats,
+  getAllChats,
+  deleteChatById 
 };

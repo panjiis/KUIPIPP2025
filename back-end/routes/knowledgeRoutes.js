@@ -5,16 +5,21 @@ const {
   getAllKnowledge, 
   createKnowledge, 
   updateKnowledge, 
-  deleteKnowledge 
+  deleteKnowledge,
+  toggleKnowledgeStatus // <-- 1. Impor fungsi baru
 } = require("../controller/knowledgeController.js");
 
 const knowledgeRouter = express.Router();
 
-// Semua rute ini perlu login admin
 knowledgeRouter.use(isAdmin);
 
 knowledgeRouter.get('/', getAllKnowledge);
 knowledgeRouter.post('/', createKnowledge);
+
+// --- RUTE BARU DI SINI ---
+// Gunakan PUT atau PATCH untuk mengubah status
+knowledgeRouter.put('/:id/status', toggleKnowledgeStatus); // <-- 2. Tambahkan rute baru
+
 knowledgeRouter.put('/:id', updateKnowledge);
 knowledgeRouter.delete('/:id', deleteKnowledge);
 

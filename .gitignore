@@ -48,3 +48,10 @@ Thumbs.db
 
 #scrapping output
 doc/
+
+# Python
+__pycache__/
+*.pyc
+
+# Database Vektor Lokal
+chroma_db/

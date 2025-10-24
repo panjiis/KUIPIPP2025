@@ -1,6 +1,5 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-// Perubahan: Mengimpor ikon dari library 'lucide-react'
 import { Send, Bot } from 'lucide-react';
 
 const initialMessages = [
@@ -13,22 +12,61 @@ export default function Chatbot() {
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const sendToBackend = async (userMsg: string) => {
+  // PERUBAHAN 1: Membuat sesi chat baru secara otomatis saat komponen dimuat
+  useEffect(() => {
+    const createNewChatSession = async () => {
+      try {
+        // Panggil endpoint di Node.js untuk membuat chat baru.
+        // 'credentials: "include"' PENTING agar browser mengirim cookie session.
+        const res = await fetch('http://localhost:5000/api/create-chat', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (res.ok) {
+          console.log('Sesi chat berhasil dibuat atau diperbarui.');
+        } else {
+          throw new Error('Gagal membuat sesi chat');
+        }
+      } catch (error) {
+        console.error('Error saat membuat sesi chat:', error);
+        setMessages((prev) => [
+          ...prev,
+          { sender: 'bot', text: '⚠️ Gagal terhubung ke server. Silakan muat ulang halaman.' },
+        ]);
+      }
+    };
+    createNewChatSession();
+  }, []); // Array kosong berarti ini hanya berjalan sekali.
+
+  // PERUBAHAN 2: Fungsi pengiriman diubah untuk menargetkan Node.js
+  const sendMessageToServer = async (userMsg: string) => {
     try {
       setLoading(true);
-      const res = await fetch('http://127.0.0.1:8080/chat', {
+      // Kirim pesan ke backend Node.js, bukan Python
+      const res = await fetch('http://localhost:5000/api/send-msg', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userMsg }),
+        // 'credentials: "include"' PENTING agar cookie session dikirim
+        credentials: 'include',
+        // Body sekarang berisi 'msg' sesuai dengan appController.js
+        body: JSON.stringify({ msg: userMsg }),
       });
 
-      if (!res.ok) throw new Error('Server error');
+      if (!res.ok) {
+        const errorData = await res.json();
+        // Menangani jika sesi chat berakhir (misal karena timeout)
+        if (errorData.refresh) {
+          window.location.reload(); // Muat ulang halaman untuk membuat sesi baru
+        }
+        throw new Error(errorData.message || 'Server error');
+      }
 
       const data = await res.json();
-      return data.answer || 'Maaf, saya tidak dapat menemukan jawaban.';
+      // Ambil balasan dari key 'reply' sesuai controller Node.js
+      return data.reply || 'Maaf, saya tidak dapat menemukan jawaban.';
     } catch (error) {
-      console.error('Error fetching from FastAPI:', error);
-      return '⚠️ Gagal terhubung ke server. Pastikan server FastAPI Anda berjalan.';
+      console.error('Error fetching from Node.js backend:', error);
+      return '⚠️ Gagal terhubung ke server. Pastikan semua server berjalan.';
     } finally {
       setLoading(false);
     }
@@ -41,7 +79,8 @@ export default function Chatbot() {
     setMessages((prev) => [...prev, { sender: 'user', text: userMsg }]);
     setInput('');
 
-    const botResponse = await sendToBackend(userMsg);
+    // Panggil fungsi yang sudah diubah
+    const botResponse = await sendMessageToServer(userMsg);
     setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
   };
 
@@ -49,11 +88,10 @@ export default function Chatbot() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // (Sisa kode JSX tidak berubah)
   return (
-    // Perubahan: Latar belakang sedikit lebih gelap untuk kontras
     <section className="min-h-screen flex items-center justify-center bg-gray-900 p-4 font-sans">
       <div className="w-full max-w-4xl bg-neutral-800 border border-neutral-700 rounded-2xl shadow-2xl flex flex-col min-h-[700px]">
-        {/* Perubahan: Header dibuat lebih menarik dengan ikon dan status */}
         <header className="flex items-center gap-4 bg-neutral-900/70 backdrop-blur-sm border-b border-neutral-700 px-6 py-4 rounded-t-2xl">
           <div className="p-2 bg-blue-500/20 rounded-full">
             <Bot className="w-6 h-6 text-blue-400" />
@@ -67,14 +105,12 @@ export default function Chatbot() {
           </div>
         </header>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-5 px-6 py-4">
           {messages.map((msg, i) => (
             <div
               key={i}
               className={`max-w-[85%] px-5 py-3 rounded-2xl text-base break-words shadow-md ${
                 msg.sender === 'user'
-                  // Perubahan: Menggunakan warna aksen biru untuk pesan pengguna
                   ? 'self-end bg-blue-600 text-white rounded-br-lg'
                   : 'self-start bg-neutral-700 text-gray-200 rounded-bl-lg'
               }`}
@@ -82,7 +118,6 @@ export default function Chatbot() {
               {msg.text}
             </div>
           ))}
-          {/* Perubahan: Indikator loading yang lebih menarik */}
           {loading && (
             <div className="self-start flex items-center gap-2">
               <div className="p-2 bg-neutral-700 rounded-full">
@@ -98,7 +133,6 @@ export default function Chatbot() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Perubahan: Input area dengan desain lebih modern */}
         <div className="flex items-center gap-3 border-t border-neutral-700 bg-neutral-900/50 backdrop-blur-sm px-4 py-3 rounded-b-2xl">
           <input
             type="text"
