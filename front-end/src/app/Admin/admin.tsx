@@ -4,32 +4,64 @@ import {
   MessageSquare,
   RefreshCw,
   Trash2,
-  AlertTriangle,
   User,
   Search,
   Bot,
-  Loader2, // <-- Impor ikon untuk loading
+  Loader2,
+  LogOut,
+  UserPlus,
 } from 'lucide-react';
 import KnowledgeView from './knowledge-view';
+import CreateAdminView from './create-admin-view';
 
-// Tipe data disesuaikan dengan data asli dari backend
+// --- TYPE DEFINITIONS ---
+
+// Represents a single chat session in the list
 interface ChatSession {
   _id: string;
   status: string;
   createdAt: string;
 }
 
+// Represents a message object used in the component's state (frontend)
 interface Message {
   sender: 'user' | 'bot';
   msg: string;
   createdAt: string;
 }
 
+// Represents a message object as it comes from the backend API
+// <-- FIX 1: Type for raw message data from the backend
+interface BackendMessage {
+  sender: 'USER' | 'BOT';
+  msg: string;
+  createdAt: string;
+  // Add any other properties that come from the backend here
+}
+
+// Represents the conversation object in the component's state
 interface SelectedConversation {
   _id: string;
   status: string;
   messages: Message[];
 }
+
+
+interface ChatListResponse {
+  data: ChatSession[];
+}
+
+// Type for the response from '/api/admin/chats/history'
+interface ChatHistoryResponse {
+  data: BackendMessage[];
+}
+
+// Type for the response from '/api/admin/chats/delete-old'
+interface DeleteOldChatsResponse {
+  message: string;
+  // You could also add `count: number` if the API returns it
+}
+
 
 export default function AdminDashboard() {
   const [chatList, setChatList] = useState<ChatSession[]>([]);
@@ -40,38 +72,41 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showKnowledgeView, setShowKnowledgeView] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showCreateAdminView, setShowCreateAdminView] = useState(false);
 
-  // Fungsi untuk mengambil daftar semua chat
   const fetchChatList = async () => {
     try {
       setListLoading(true);
       const res = await fetch('http://localhost:5000/api/admin/chats/all', {
-        credentials: 'include', // PENTING untuk mengirim cookie session
+        credentials: 'include',
       });
 
       if (res.status === 401) {
-        window.location.href = '/login'; // Ganti dengan URL login Anda
+        window.location.href = '/login';
         return;
       }
       if (!res.ok) throw new Error('Gagal mengambil daftar chat.');
 
-      const data = await res.json();
+      // <-- FIX 2: Type the JSON response
+      const data: ChatListResponse = await res.json();
       setChatList(data.data || []);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) { // <-- FIX 5: Safer error handling
+        if (err instanceof Error) {
+            setError(err.message);
+        } else {
+            setError('Terjadi kesalahan yang tidak diketahui.');
+        }
     } finally {
       setListLoading(false);
     }
   };
 
-  // Mengambil daftar chat saat komponen pertama kali dimuat
   useEffect(() => {
     fetchChatList();
   }, []);
 
-  // Fungsi untuk mengambil detail history saat chat diklik
-  const handleSelectConversation = async (chatId: string) => {
-    // Hindari fetch ulang jika chat yang sama diklik
+const handleSelectConversation = async (chatId: string) => {
     if (selectedConversation?._id === chatId) return;
     
     try {
@@ -85,10 +120,12 @@ export default function AdminDashboard() {
 
       if (!res.ok) throw new Error('Gagal mengambil riwayat chat.');
 
-      const data = await res.json();
+      const data: ChatHistoryResponse = await res.json();
       
-      const transformedMessages = data.data.map((msg: any) => ({
-        ...msg,
+      // <-- FIX: Explicitly type the return value of the map callback as `Message`.
+      const transformedMessages: Message[] = data.data.map((msg: BackendMessage): Message => ({
+        msg: msg.msg,
+        createdAt: msg.createdAt,
         sender: msg.sender === 'USER' ? 'user' : 'bot',
       }));
 
@@ -99,14 +136,17 @@ export default function AdminDashboard() {
         status: currentChat?.status || 'UNKNOWN',
         messages: transformedMessages,
       });
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Terjadi kesalahan saat mengambil detail chat.');
+      }
     } finally {
       setDetailLoading(false);
     }
-  };
+};
 
-  // Fungsi untuk menghapus chat spesifik
   const handleDeleteChat = async (id: string) => {
     if (!window.confirm('Apakah Anda yakin ingin menghapus percakapan ini secara permanen?')) return;
     
@@ -118,17 +158,19 @@ export default function AdminDashboard() {
 
       if (!res.ok) throw new Error('Gagal menghapus chat.');
 
-      // Update UI setelah berhasil hapus
       setChatList((prev) => prev.filter((c) => c._id !== id));
       setSelectedConversation(null);
       alert('Percakapan berhasil dihapus.');
 
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err) { // <-- FIX 5: Safer error handling
+      if (err instanceof Error) {
+        alert(`Error: ${err.message}`);
+      } else {
+        alert('Terjadi kesalahan yang tidak diketahui saat menghapus.');
+      }
     }
   };
 
-  // Fungsi untuk menghapus chat lama
   const handleDeleteOldChats = async () => {
     if (!window.confirm('Apakah Anda yakin ingin menghapus semua chat lama (NONACTIVE > 7 hari)?')) return;
     
@@ -140,15 +182,41 @@ export default function AdminDashboard() {
 
       if (!res.ok) throw new Error('Gagal menghapus chat lama.');
 
-      const result = await res.json();
+      // <-- FIX 4: Type the JSON response
+      const result: DeleteOldChatsResponse = await res.json();
       alert(result.message);
-      fetchChatList(); // Muat ulang daftar chat setelah penghapusan
+      fetchChatList();
 
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err) { // <-- FIX 5: Safer error handling
+      if (err instanceof Error) {
+        alert(`Error: ${err.message}`);
+      } else {
+        alert('Terjadi kesalahan yang tidak diketahui saat menghapus.');
+      }
     }
   };
 
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      const res = await fetch('http://localhost:5000/api/admin/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!res.ok) throw new Error('Proses logout gagal.');
+
+      window.location.href = '/login';
+    } catch (err) { // <-- FIX 5: Safer error handling
+      if (err instanceof Error) {
+        alert(`Error saat logout: ${err.message}`);
+      } else {
+        alert('Terjadi kesalahan yang tidak diketahui saat logout.');
+      }
+      setIsLoggingOut(false);
+    }
+  };
 
   const filteredConversations = chatList.filter((conv) =>
     conv._id.toLowerCase().includes(searchQuery.toLowerCase())
@@ -159,21 +227,41 @@ export default function AdminDashboard() {
   if (showKnowledgeView) {
     return <KnowledgeView onBack={handleViewChange} />;
   }
+  if (showCreateAdminView) {
+    return <CreateAdminView onBack={() => setShowCreateAdminView(false)} />;
+  }
 
+  // The rest of the JSX remains the same...
   return (
     <div className='bg-gray-900 min-h-screen text-gray-200 font-sans p-4 sm:p-6 lg:p-8'>
       <div className='max-w-7xl mx-auto'>
-        <header className='mb-8'>
-          <h1 className='text-3xl font-bold text-white tracking-tight'>
-            Admin Dashboard
-          </h1>
-          <p className='text-gray-400 mt-1'>
-            Manajemen dan monitoring aktivitas chatbot.
-          </p>
+        <header className='mb-8 flex justify-between items-start'>
+            <div>
+                <h1 className='text-3xl font-bold text-white tracking-tight'>
+                    Admin Dashboard
+                </h1>
+                <p className='text-gray-400 mt-1'>
+                    Manajemen dan monitoring aktivitas chatbot.
+                </p>
+            </div>
+            <button
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors disabled:bg-neutral-600'
+            >
+                {isLoggingOut ? (
+                    <Loader2 className='w-5 h-5 animate-spin' />
+                ) : (
+                    <LogOut className='w-5 h-5' />
+                )}
+                <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
+            </button>
         </header>
 
         {/* Quick Actions */}
-        <section className='grid grid-cols-1 md:grid-cols-2 gap-6 mb-8'>
+        <section className='grid grid-cols-1 md:grid-cols-3 gap-6 mb-8'>
+          
+          {/* Item 1: Knowledge View */}
           <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
             <div>
               <h2 className='text-lg font-semibold text-white'>Knowledge View</h2>
@@ -187,6 +275,8 @@ export default function AdminDashboard() {
               <span>Ganti Tampilan</span>
             </button>
           </div>
+          
+          {/* Item 2: Tindakan Massal */}
           <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
             <div>
               <h2 className='text-lg font-semibold text-white'>Tindakan Massal</h2>
@@ -200,6 +290,19 @@ export default function AdminDashboard() {
               <span>Hapus Chat Lama</span>
             </button>
           </div>
+          
+          {/* Item 3: Buat Admin Baru */}
+          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
+            <div>
+              <h2 className='text-lg font-semibold text-white'>Buat Admin Baru</h2>
+              <p className='text-sm text-gray-400 mt-1'>Tambahkan akun administrator baru.</p>
+              </div>
+            <button onClick={() => setShowCreateAdminView(true)} className='flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg'>
+              <UserPlus className='w-5 h-5' />
+              <span>Buat</span>
+            </button>
+          </div>
+
         </section>
 
         {/* Chat History */}

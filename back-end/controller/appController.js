@@ -64,13 +64,7 @@ const postMsg = async (req, res) => {
 
     const { msg, attachment } = req.body;
 
-    // Validasi minimal isi pesan
-    if (!msg) {
-      return res.status(400).json({
-        error: true,
-        message: 'Pesan harus diisi.'
-      });
-    }
+    
 
     // Buat pesan baru
     const newMessage = new Message({
@@ -80,8 +74,7 @@ const postMsg = async (req, res) => {
       sender: "USER"
     });
 
-    // Simpan ke database
-    await newMessage.save();
+    
 
     
     const response = await axios.post('http://127.0.0.1:8080/reply', {
@@ -95,7 +88,6 @@ const postMsg = async (req, res) => {
       sender: "SELF"
     });
     
-    await newReply.save();
     
     res.status(201).json({
       error: false,
@@ -103,6 +95,10 @@ const postMsg = async (req, res) => {
       message: msg,
       reply: replyText
     });
+    
+    // Simpan ke database
+    await newMessage.save();
+    await newReply.save();
   } catch (error) {
     console.error('Error saat mengirim pesan:', error);
     res.status(500).json({
@@ -116,7 +112,7 @@ const postMsg = async (req, res) => {
 const createChat = async (req, res) => {
   try {
     if (req.session.chatId){
-      setChatNonActive(req.session.chatId);
+      setChatNonActive(req.session.chatId,req.session.consent);
       delete req.session.chatId;
     }
     const status  = "ACTIVE";
@@ -136,7 +132,7 @@ const createChat = async (req, res) => {
   }
 };
 
-const setChatNonActive = async (chatId) => {
+const setChatNonActive = async (chatId, consent) => {
   try {
     // Cek apakah chat dengan chatId ini masih aktif
     const chat = await Chat.findById(chatId);
@@ -162,9 +158,17 @@ const setChatNonActive = async (chatId) => {
     }
     // Hapus dari Map
     lastHeartbeat.delete(chatId);
+    // Validasi minimal isi pesan
+    console.log(consent);
+    console.log(consent=='true');
+    console.log(consent=='false');
+    if (consent=='false') {
+      const result = await Message.deleteMany({ chatId: chatId });
+      const result1 = await Chat.findByIdAndDelete(chatId);
+    }
     
 
-    console.log(`✅ Chat ${chatId} berhasil diubah menjadi NONACTIVE`);
+    console.log(`✅ Chat ${chatId} berhasil diubah menjadi NONACTIVE dan karena consen = ${consent}, maka chat ${(consent)?'tidak dihapus':'dihapus'}`);
     return updatedChat;
   } catch (error) {
     console.error(`❌ Gagal mengubah status chat ${chatId}:`, error);
@@ -180,7 +184,7 @@ const nonactiveChat = async (req, res) => {
     }
 
     // Panggil fungsi logic
-    const updatedChat = await setChatNonActive(req.session.chatId);
+    const updatedChat = await setChatNonActive(req.session.chatId, req.session.consent);
 
     if (!updatedChat) {
       return res.status(404).json({ error: true, message: 'Chat tidak ditemukan' });
@@ -223,7 +227,7 @@ setInterval(async () => {
       console.log(`⚠️ Chat ${chatId} tidak aktif selama >5 menit. Menonaktifkan...`);
 
       try {
-        setChatNonActive(chatId);
+        setChatNonActive(chatId, 'true');//sementara
       } catch (err) {
         console.error(`❌ Gagal menonaktifkan chat ${chatId}:`, err.message);
       }
@@ -231,5 +235,39 @@ setInterval(async () => {
   }
 }, 2 * 60 * 1000); // periksa setiap 1 menit
 
+const postConsent = async (req, res) => {
+  if (!req.session.chatId) {
+    return res.status(400).json({ 
+      error: true,
+      refresh: true,
+      message: 'Chat harus dibuat terlebih dahulu.'
+    });
+  }
+  // Cek apakah chat dengan chatId ini masih aktif
+  const chat = await Chat.findById(req.session.chatId);
 
-module.exports = { getChat, createChat, nonactiveChat, postMsg, setInterval, postHeartbeat };
+  if (!chat) {
+    return res.status(404).json({
+      error: true,
+      refresh: true,
+      message: 'Chat tidak ditemukan.'
+    });
+  }
+
+  if (chat.status !== "ACTIVE") {
+    return res.status(400).json({
+      error: true,
+      refresh: true,
+      message: 'Chat sudah tidak aktif. Silakan buat chat baru.'
+    });
+  }
+
+  const { consent } = req.body;
+
+  req.session.consent = consent;
+  return res.status(200).json({
+      error: false,
+      message: 'berhasil consent'
+    });
+};
+module.exports = { getChat, createChat, nonactiveChat, postMsg, setInterval, postHeartbeat, postConsent };
