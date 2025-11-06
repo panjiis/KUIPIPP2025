@@ -1,8 +1,8 @@
+// Admin/admin.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import {
   MessageSquare,
-  RefreshCw,
   Trash2,
   User,
   Search,
@@ -10,60 +10,141 @@ import {
   Loader2,
   LogOut,
   UserPlus,
+  DatabaseZap,
+  ChevronsLeft,
 } from 'lucide-react';
 import KnowledgeView from './knowledge-view';
 import CreateAdminView from './create-admin-view';
 
-// --- TYPE DEFINITIONS ---
+// Impor toast (pastikan sudah ada)
+import { toast } from 'sonner';
 
-// Represents a single chat session in the list
+// ... (Interface Anda tetap sama) ...
 interface ChatSession {
   _id: string;
   status: string;
   createdAt: string;
 }
-
-// Represents a message object used in the component's state (frontend)
 interface Message {
   sender: 'user' | 'bot';
   msg: string;
   createdAt: string;
 }
-
-// Represents a message object as it comes from the backend API
-// <-- FIX 1: Type for raw message data from the backend
 interface BackendMessage {
   sender: 'USER' | 'BOT';
   msg: string;
   createdAt: string;
-  // Add any other properties that come from the backend here
 }
-
-// Represents the conversation object in the component's state
 interface SelectedConversation {
   _id: string;
   status: string;
   messages: Message[];
 }
-
-
 interface ChatListResponse {
   data: ChatSession[];
 }
-
-// Type for the response from '/api/admin/chats/history'
 interface ChatHistoryResponse {
   data: BackendMessage[];
 }
-
-// Type for the response from '/api/admin/chats/delete-old'
 interface DeleteOldChatsResponse {
   message: string;
-  // You could also add `count: number` if the API returns it
 }
+type ActiveView = 'history' | 'knowledge' | 'createAdmin';
 
 
-export default function AdminDashboard() {
+// --- KOMPONEN Sidebar ---
+const AdminSidebar = ({
+  activeView,
+  onNavClick,
+  onLogout,
+  isLoggingOut,
+}: {
+  activeView: ActiveView;
+  onNavClick: (view: ActiveView) => void;
+  onLogout: () => void;
+  isLoggingOut: boolean;
+}) => {
+  const [isOpen, setIsOpen] = useState(true);
+
+  const navItems = [
+    {
+      view: 'history' as ActiveView,
+      icon: MessageSquare,
+      label: 'Chat History',
+    },
+    {
+      view: 'knowledge' as ActiveView,
+      icon: DatabaseZap,
+      label: 'Knowledge Base',
+    },
+    {
+      view: 'createAdmin' as ActiveView,
+      icon: UserPlus,
+      label: 'Create Admin',
+    },
+  ];
+
+  return (
+    <aside
+      className={`flex flex-col h-screen p-4 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700
+                 transition-all duration-300 ease-in-out overflow-x-hidden
+                 ${isOpen ? 'w-64' : 'w-20'}`}
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+    >
+      <div className='px-2 mb-8 h-8'>
+        {isOpen ? (
+          <h1 className='text-2xl font-bold text-gray-900 dark:text-white whitespace-nowrap'>
+            Admin
+          </h1>
+        ) : (
+          <ChevronsLeft className='w-6 h-6 text-gray-900 dark:text-white' />
+        )}
+      </div>
+
+      <nav className='flex-1 flex flex-col gap-2'>
+        {navItems.map((item) => (
+          <button
+            key={item.view}
+            onClick={() => onNavClick(item.view)}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+                      ${!isOpen && 'justify-center'} 
+                      ${
+                        activeView === item.view
+                          ? 'bg-blue-600 text-white'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      }`}
+          >
+            <item.icon className='w-5 h-5 flex-shrink-0' />
+            {isOpen && <span className='whitespace-nowrap'>{item.label}</span>}
+          </button>
+        ))}
+      </nav>
+
+      <button
+        onClick={onLogout}
+        disabled={isLoggingOut}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50
+                  ${!isOpen && 'justify-center'}`}
+      >
+        {isLoggingOut ? (
+          <Loader2 className='w-5 h-5 animate-spin flex-shrink-0' />
+        ) : (
+          <LogOut className='w-5 h-5 flex-shrink-0' />
+        )}
+        {isOpen && (
+          <span className='whitespace-nowrap'>
+            {isLoggingOut ? 'Logging out...' : 'Logout'}
+          </span>
+        )}
+      </button>
+    </aside>
+  );
+};
+
+
+// --- KOMPONEN Tampilan History Chat ---
+const ChatHistoryView = () => {
   const [chatList, setChatList] = useState<ChatSession[]>([]);
   const [selectedConversation, setSelectedConversation] =
     useState<SelectedConversation | null>(null);
@@ -71,66 +152,53 @@ export default function AdminDashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [showKnowledgeView, setShowKnowledgeView] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [showCreateAdminView, setShowCreateAdminView] = useState(false);
 
+  // ... (fetchChatList & handleSelectConversation tetap sama) ...
   const fetchChatList = async () => {
     try {
       setListLoading(true);
       const res = await fetch('http://localhost:5000/api/admin/chats/all', {
         credentials: 'include',
       });
-
       if (res.status === 401) {
         window.location.href = '/login';
         return;
       }
       if (!res.ok) throw new Error('Gagal mengambil daftar chat.');
-
-      // <-- FIX 2: Type the JSON response
       const data: ChatListResponse = await res.json();
       setChatList(data.data || []);
-    } catch (err) { // <-- FIX 5: Safer error handling
-        if (err instanceof Error) {
-            setError(err.message);
-        } else {
-            setError('Terjadi kesalahan yang tidak diketahui.');
-        }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Terjadi kesalahan yang tidak diketahui.');
+      }
     } finally {
       setListLoading(false);
     }
   };
-
   useEffect(() => {
     fetchChatList();
   }, []);
-
-const handleSelectConversation = async (chatId: string) => {
+  const handleSelectConversation = async (chatId: string) => {
     if (selectedConversation?._id === chatId) return;
-    
     try {
       setDetailLoading(true);
       setSelectedConversation(null);
-
       const res = await fetch(
         `http://localhost:5000/api/admin/chats/history?chatId=${chatId}`,
         { credentials: 'include' }
       );
-
       if (!res.ok) throw new Error('Gagal mengambil riwayat chat.');
-
       const data: ChatHistoryResponse = await res.json();
-      
-      // <-- FIX: Explicitly type the return value of the map callback as `Message`.
-      const transformedMessages: Message[] = data.data.map((msg: BackendMessage): Message => ({
-        msg: msg.msg,
-        createdAt: msg.createdAt,
-        sender: msg.sender === 'USER' ? 'user' : 'bot',
-      }));
-
-      const currentChat = chatList.find(chat => chat._id === chatId);
-
+      const transformedMessages: Message[] = data.data.map(
+        (msg: BackendMessage): Message => ({
+          msg: msg.msg,
+          createdAt: msg.createdAt,
+          sender: msg.sender === 'USER' ? 'user' : 'bot',
+        })
+      );
+      const currentChat = chatList.find((chat) => chat._id === chatId);
       setSelectedConversation({
         _id: chatId,
         status: currentChat?.status || 'UNKNOWN',
@@ -145,11 +213,10 @@ const handleSelectConversation = async (chatId: string) => {
     } finally {
       setDetailLoading(false);
     }
-};
+  };
 
-  const handleDeleteChat = async (id: string) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus percakapan ini secara permanen?')) return;
-    
+  // 1. Logika untuk menghapus SATU chat dipindah ke fungsi sendiri
+  const executeDeleteChat = async (id: string) => {
     try {
       const res = await fetch(`http://localhost:5000/api/admin/chats/${id}`, {
         method: 'DELETE',
@@ -160,42 +227,238 @@ const handleSelectConversation = async (chatId: string) => {
 
       setChatList((prev) => prev.filter((c) => c._id !== id));
       setSelectedConversation(null);
-      alert('Percakapan berhasil dihapus.');
-
-    } catch (err) { // <-- FIX 5: Safer error handling
+      toast.success('Percakapan berhasil dihapus.');
+    } catch (err) {
       if (err instanceof Error) {
-        alert(`Error: ${err.message}`);
+        toast.error(`Error: ${err.message}`);
       } else {
-        alert('Terjadi kesalahan yang tidak diketahui saat menghapus.');
+        toast.error('Terjadi kesalahan yang tidak diketahui saat menghapus.');
       }
     }
   };
 
-  const handleDeleteOldChats = async () => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus semua chat lama (NONACTIVE > 7 hari)?')) return;
-    
+  // 2. handleDeleteChat sekarang memunculkan TOAST KONFIRMASI
+  const handleDeleteChat = async (id: string) => {
+    toast.warning('Konfirmasi Hapus', {
+      description: 'Apakah Anda yakin ingin menghapus percakapan ini secara permanen?',
+      action: {
+        label: 'Ya, Hapus',
+        onClick: () => executeDeleteChat(id), // Memanggil fungsi eksekusi
+      },
+      cancel: {
+        label: 'Batal',
+        // --- PERBAIKAN DI SINI ---
+        onClick: () => {},
+        // -------------------------
+      },
+      duration: 10000, // Beri waktu 10 detik sebelum hilang
+    });
+  };
+
+  // 3. Logika untuk menghapus CHAT LAMA dipindah ke fungsi sendiri
+  const executeDeleteOldChats = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/admin/chats/delete-old', {
-        method: 'DELETE',
-        credentials: 'include',
-      });
+      const res = await fetch(
+        'http://localhost:5000/api/admin/chats/delete-old',
+        {
+          method: 'DELETE',
+          credentials: 'include',
+        }
+      );
 
       if (!res.ok) throw new Error('Gagal menghapus chat lama.');
 
-      // <-- FIX 4: Type the JSON response
       const result: DeleteOldChatsResponse = await res.json();
-      alert(result.message);
-      fetchChatList();
-
-    } catch (err) { // <-- FIX 5: Safer error handling
+      toast.success(result.message);
+      fetchChatList(); // Refresh list
+    } catch (err) {
       if (err instanceof Error) {
-        alert(`Error: ${err.message}`);
+        toast.error(`Error: ${err.message}`);
       } else {
-        alert('Terjadi kesalahan yang tidak diketahui saat menghapus.');
+        toast.error('Terjadi kesalahan yang tidak diketahui saat menghapus.');
       }
     }
   };
 
+  // 4. handleDeleteOldChats sekarang memunculkan TOAST KONFIRMASI
+  const handleDeleteOldChats = async () => {
+    toast.warning('Konfirmasi Hapus', {
+      description: 'Apakah Anda yakin ingin menghapus semua chat lama (NONACTIVE > 7 hari)? Tindakan ini tidak dapat dibatalkan.',
+      action: {
+        label: 'Ya, Hapus Semua',
+        onClick: () => executeDeleteOldChats(), // Memanggil fungsi eksekusi
+      },
+      cancel: {
+        label: 'Batal',
+        // --- PERBAIKAN DI SINI ---
+        onClick: () => {},
+        // -------------------------
+      },
+      duration: 10000, // Beri waktu 10 detik sebelum hilang
+    });
+  };
+
+  const filteredConversations = chatList.filter((conv) =>
+    conv._id.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <div className='p-4 sm:p-6 lg:p-8 h-full flex flex-col'>
+      {/* Header */}
+      <header className='mb-8 flex justify-between items-start'>
+        <div>
+          <h1 className='text-3xl font-bold text-gray-900 dark:text-white tracking-tight'>
+            Chat History
+          </h1>
+          <p className='text-gray-600 dark:text-gray-400 mt-1'>
+            Manajemen dan monitoring aktivitas chatbot.
+          </p>
+        </div>
+        <button
+          onClick={handleDeleteOldChats} // Tombol ini sekarang memanggil toast
+          className='flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-4 py-2 rounded-lg'
+        >
+          <Trash2 className='w-5 h-5' />
+          <span>Hapus Chat Lama</span>
+        </button>
+      </header>
+
+      {/* Chat History Section */}
+      <section className='grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1'>
+        {/* List */}
+        <div className='lg:col-span-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg h-[600px] flex flex-col'>
+          <div className='p-4 border-b border-gray-200 dark:border-gray-700'>
+            <h2 className='text-lg font-semibold flex items-center mb-4 gap-2 text-gray-900 dark:text-white'>
+              <MessageSquare /> Riwayat Percakapan
+            </h2>
+            <div className='relative'>
+              <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500' />
+              <input
+                type='text'
+                placeholder='Cari ID percakapan...'
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className='w-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-700 pl-10 pr-4 py-2 text-sm'
+              />
+            </div>
+          </div>
+          <div className='overflow-y-auto flex-1'>
+            {listLoading ? (
+              <div className='flex justify-center items-center h-full text-gray-500'>
+                <Loader2 className='w-8 h-8 animate-spin' />
+              </div>
+            ) : filteredConversations.length > 0 ? (
+              filteredConversations.map((conv) => (
+                <button
+                  key={conv._id}
+                  onClick={() => handleSelectConversation(conv._id)}
+                  className={`w-full text-left p-4 border-l-4 hover:bg-gray-100 dark:hover:bg-gray-800/50 ${
+                    selectedConversation?._id === conv._id
+                      ? 'bg-blue-600/10 dark:bg-blue-600/20 border-blue-500'
+                      : 'border-transparent'
+                  }`}
+                >
+                  <p className='font-bold text-gray-900 dark:text-white text-sm truncate'>
+                    ID: {conv._id}
+                  </p>
+                  <p className='text-sm text-gray-600 dark:text-gray-400 truncate mt-1'>
+                    Status: {conv.status}
+                  </p>
+                  <p className='text-xs text-gray-500 mt-2'>
+                    {new Date(conv.createdAt).toLocaleString()}
+                  </p>
+                </button>
+              ))
+            ) : (
+              <div className='text-center text-gray-500 p-8'>
+                <p>{error || 'Percakapan tidak ditemukan.'}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Detail */}
+        <div className='lg:col-span-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg h-[600px] flex flex-col'>
+          {detailLoading ? (
+            <div className='flex justify-center items-center h-full text-gray-500'>
+              <Loader2 className='w-12 h-12 animate-spin' />
+            </div>
+          ) : selectedConversation ? (
+            <>
+              <header className='p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center'>
+                <div>
+                  <h3 className='font-bold text-gray-900 dark:text-white'>
+                    Detail Percakapan
+                  </h3>
+                  <p className='text-sm text-gray-600 dark:text-gray-400'>
+                    {selectedConversation._id}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDeleteChat(selectedConversation._id)} // Tombol ini juga sekarang memanggil toast
+                  className='flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-2 rounded-lg'
+                >
+                  <Trash2 className='w-4 h-4' />
+                  <span>Hapus</span>
+                </button>
+              </header>
+              <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-5'>
+                {selectedConversation.messages.map((msg, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-start gap-3 max-w-[85%] ${
+                      msg.sender === 'user'
+                        ? 'self-end flex-row-reverse'
+                        : 'self-start'
+                    }`}
+                  >
+                    <div
+                      className={`p-2 rounded-full ${
+                        msg.sender === 'user'
+                          ? 'bg-blue-600'
+                          : 'bg-gray-500 dark:bg-gray-700'
+                      }`}
+                    >
+                      {msg.sender === 'user' ? (
+                        <User className='w-4 h-4 text-white' />
+                      ) : (
+                        <Bot className='w-4 h-4 text-white' />
+                      )}
+                    </div>
+                    <div
+                      className={`px-4 py-2 rounded-lg shadow-sm ${
+                        msg.sender === 'user'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200'
+                      }`}
+                    >
+                      <p>{msg.msg}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className='flex flex-col items-center justify-center h-full text-gray-500'>
+              <MessageSquare className='w-16 h-16 mb-4' />
+              <h3 className='text-xl font-semibold'>Pilih Percakapan</h3>
+              <p>
+                Pilih salah satu percakapan dari daftar di sebelah kiri untuk
+                melihat detailnya.
+              </p>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};
+
+
+// --- KOMPONEN UTAMA: AdminDashboard ---
+export default function AdminDashboard() {
+  const [activeView, setActiveView] = useState<ActiveView>('history');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -204,218 +467,40 @@ const handleSelectConversation = async (chatId: string) => {
         method: 'POST',
         credentials: 'include',
       });
-
       if (!res.ok) throw new Error('Proses logout gagal.');
-
       window.location.href = '/login';
-    } catch (err) { // <-- FIX 5: Safer error handling
+    } catch (err) {
       if (err instanceof Error) {
-        alert(`Error saat logout: ${err.message}`);
+        toast.error(`Error saat logout: ${err.message}`);
       } else {
-        alert('Terjadi kesalahan yang tidak diketahui saat logout.');
+        toast.error('Terjadi kesalahan yang tidak diketahui saat logout.');
       }
       setIsLoggingOut(false);
     }
   };
 
-  const filteredConversations = chatList.filter((conv) =>
-    conv._id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const renderView = () => {
+    switch (activeView) {
+      case 'history':
+        return <ChatHistoryView />;
+      case 'knowledge':
+        return <KnowledgeView onBack={() => setActiveView('history')} />;
+      case 'createAdmin':
+        return <CreateAdminView onBack={() => setActiveView('history')} />;
+      default:
+        return <ChatHistoryView />;
+    }
+  };
 
-  const handleViewChange = () => setShowKnowledgeView(!showKnowledgeView);
-
-  if (showKnowledgeView) {
-    return <KnowledgeView onBack={handleViewChange} />;
-  }
-  if (showCreateAdminView) {
-    return <CreateAdminView onBack={() => setShowCreateAdminView(false)} />;
-  }
-
-  // The rest of the JSX remains the same...
   return (
-    <div className='bg-gray-900 min-h-screen text-gray-200 font-sans p-4 sm:p-6 lg:p-8'>
-      <div className='max-w-7xl mx-auto'>
-        <header className='mb-8 flex justify-between items-start'>
-            <div>
-                <h1 className='text-3xl font-bold text-white tracking-tight'>
-                    Admin Dashboard
-                </h1>
-                <p className='text-gray-400 mt-1'>
-                    Manajemen dan monitoring aktivitas chatbot.
-                </p>
-            </div>
-            <button
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-4 py-2 rounded-lg transition-colors disabled:bg-neutral-600'
-            >
-                {isLoggingOut ? (
-                    <Loader2 className='w-5 h-5 animate-spin' />
-                ) : (
-                    <LogOut className='w-5 h-5' />
-                )}
-                <span>{isLoggingOut ? 'Logging out...' : 'Logout'}</span>
-            </button>
-        </header>
-
-        {/* Quick Actions */}
-        <section className='grid grid-cols-1 md:grid-cols-3 gap-6 mb-8'>
-          
-          {/* Item 1: Knowledge View */}
-          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
-            <div>
-              <h2 className='text-lg font-semibold text-white'>Knowledge View</h2>
-              <p className='text-sm text-gray-400 mt-1'>Ganti ke tampilan update pengetahuan.</p>
-            </div>
-            <button
-              onClick={handleViewChange}
-              className='flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold px-4 py-2 rounded-lg'
-            >
-              <RefreshCw className='w-5 h-5' />
-              <span>Ganti Tampilan</span>
-            </button>
-          </div>
-          
-          {/* Item 2: Tindakan Massal */}
-          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
-            <div>
-              <h2 className='text-lg font-semibold text-white'>Tindakan Massal</h2>
-              <p className='text-sm text-gray-400 mt-1'>Hapus semua chat lama yang tidak aktif.</p>
-            </div>
-            <button
-              onClick={handleDeleteOldChats}
-              className='flex items-center gap-2 bg-yellow-600 hover:bg-yellow-500 text-white font-semibold px-4 py-2 rounded-lg'
-            >
-              <Trash2 className='w-5 h-5' />
-              <span>Hapus Chat Lama</span>
-            </button>
-          </div>
-          
-          {/* Item 3: Buat Admin Baru */}
-          <div className='bg-neutral-800 border border-neutral-700 rounded-lg p-6 flex items-center justify-between'>
-            <div>
-              <h2 className='text-lg font-semibold text-white'>Buat Admin Baru</h2>
-              <p className='text-sm text-gray-400 mt-1'>Tambahkan akun administrator baru.</p>
-              </div>
-            <button onClick={() => setShowCreateAdminView(true)} className='flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-4 py-2 rounded-lg'>
-              <UserPlus className='w-5 h-5' />
-              <span>Buat</span>
-            </button>
-          </div>
-
-        </section>
-
-        {/* Chat History */}
-        <section className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
-          {/* List */}
-          <div className='lg:col-span-1 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
-            <div className='p-4 border-b border-neutral-700'>
-              <h2 className='text-lg font-semibold flex items-center mb-4 gap-2'>
-                <MessageSquare /> Riwayat Percakapan
-              </h2>
-              <div className='relative'>
-                <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500' />
-                <input
-                  type='text'
-                  placeholder='Cari ID percakapan...'
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className='w-full bg-neutral-900 text-gray-200 rounded-lg border border-neutral-600 pl-10 pr-4 py-2 text-sm'
-                />
-              </div>
-            </div>
-
-            <div className='overflow-y-auto flex-1'>
-              {listLoading ? (
-                <div className='flex justify-center items-center h-full text-gray-500'>
-                  <Loader2 className='w-8 h-8 animate-spin' />
-                </div>
-              ) : filteredConversations.length > 0 ? (
-                filteredConversations.map((conv) => (
-                  <button
-                    key={conv._id}
-                    onClick={() => handleSelectConversation(conv._id)}
-                    className={`w-full text-left p-4 border-l-4 hover:bg-neutral-700/50 ${
-                      selectedConversation?._id === conv._id
-                        ? 'bg-blue-600/20 border-blue-500'
-                        : 'border-transparent'
-                    }`}
-                  >
-                    <p className='font-bold text-white text-sm truncate'>
-                      ID: {conv._id}
-                    </p>
-                    <p className='text-sm text-gray-400 truncate mt-1'>
-                      Status: {conv.status}
-                    </p>
-                    <p className='text-xs text-gray-500 mt-2'>
-                      {new Date(conv.createdAt).toLocaleString()}
-                    </p>
-                  </button>
-                ))
-              ) : (
-                <div className='text-center text-gray-500 p-8'>
-                  <p>{error || 'Percakapan tidak ditemukan.'}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Detail */}
-          <div className='lg:col-span-2 bg-neutral-800 border border-neutral-700 rounded-lg h-[600px] flex flex-col'>
-            {detailLoading ? (
-              <div className='flex justify-center items-center h-full text-gray-500'>
-                <Loader2 className='w-12 h-12 animate-spin' />
-              </div>
-            ) : selectedConversation ? (
-              <>
-                <header className='p-4 border-b border-neutral-700 flex justify-between items-center'>
-                  <div>
-                    <h3 className='font-bold text-white'>Detail Percakapan</h3>
-                    <p className='text-sm text-gray-400'>
-                      {selectedConversation._id}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleDeleteChat(selectedConversation._id)}
-                    className='flex items-center gap-2 bg-red-600 hover:bg-red-500 text-white font-semibold px-3 py-2 rounded-lg'
-                  >
-                    <Trash2 className='w-4 h-4' />
-                    <span>Hapus</span>
-                  </button>
-                </header>
-
-                <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-5'>
-                  {selectedConversation.messages.map((msg, index) => (
-                    <div
-                      key={index}
-                      className={`flex items-start gap-3 max-w-[85%] ${
-                        msg.sender === 'user'
-                          ? 'self-end flex-row-reverse'
-                          : 'self-start'
-                      }`}
-                    >
-                      <div className={`p-2 rounded-full ${ msg.sender === 'user' ? 'bg-blue-600' : 'bg-neutral-600' }`} >
-                        {msg.sender === 'user' ? ( <User className='w-4 h-4 text-white' /> ) : ( <Bot className='w-4 h-4 text-white' /> )}
-                      </div>
-                      <div className={`px-4 py-2 rounded-lg shadow-sm ${ msg.sender === 'user' ? 'bg-blue-600 text-white' : 'bg-neutral-700 text-gray-200' }`} >
-                        <p>{msg.msg}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className='flex flex-col items-center justify-center h-full text-gray-500'>
-                <MessageSquare className='w-16 h-16 mb-4' />
-                <h3 className='text-xl font-semibold'>Pilih Percakapan</h3>
-                <p>
-                  Pilih salah satu percakapan dari daftar di sebelah kiri untuk melihat detailnya.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+    <div className='flex h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-200 font-sans'>
+      <AdminSidebar
+        activeView={activeView}
+        onNavClick={setActiveView}
+        onLogout={handleLogout}
+        isLoggingOut={isLoggingOut}
+      />
+      <main className='flex-1 overflow-y-auto h-screen'>{renderView()}</main>
     </div>
   );
 }
