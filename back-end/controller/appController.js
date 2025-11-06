@@ -111,8 +111,55 @@ const postMsg = async (req, res) => {
 
 const createChat = async (req, res) => {
   try {
+    // --- (MULAI PERBAIKAN CAPTCHA) ---
+
+    // 1. Ambil token CAPTCHA dari request body frontend
+    const { captchaToken } = req.body;
+
+    if (!captchaToken) {
+      return res.status(400).json({ error: true, message: 'Verifikasi CAPTCHA diperlukan.' });
+    }
+
+    // 2. Ambil Kunci Rahasia Anda dari file .env
+    const secretKey = process.env.RECAPTCHA_SECRET_KEY;
+    if (!secretKey) {
+        console.error("RECAPTCHA_SECRET_KEY tidak ditemukan di file .env");
+        return res.status(500).json({ error: true, message: 'Konfigurasi server error.' });
+    }
+
+    // 3. Siapkan data untuk dikirim di BODY permintaan POST
+    const verificationUrl = 'https://www.google.com/recaptcha/api/siteverify';
+    
+    // Gunakan URLSearchParams untuk memformat data sebagai x-www-form-urlencoded
+    const params = new URLSearchParams();
+    params.append('secret', secretKey);
+    params.append('response', captchaToken);
+    // Anda juga bisa menambahkan IP pengguna jika perlu:
+    // params.append('remoteip', req.ip);
+
+    // 4. Kirim permintaan verifikasi ke Google
+    // Kirim 'params' sebagai data (argumen kedua axios.post)
+    const verificationResponse = await axios.post(verificationUrl, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+
+    const { success, 'error-codes': errorCodes } = verificationResponse.data;
+
+    // 5. Periksa apakah verifikasi gagal
+    if (!success) {
+      // Log error-codes untuk debugging
+      console.warn('Verifikasi CAPTCHA gagal:', errorCodes);
+      return res.status(401).json({ error: true, message: 'Verifikasi CAPTCHA gagal. Silakan coba lagi.' });
+    }
+
+    // --- (SELESAI PERBAIKAN CAPTCHA) ---
+
+
+    // 6. (Logika Asli Anda) - Hanya berjalan jika CAPTCHA berhasil
     if (req.session.chatId){
-      setChatNonActive(req.session.chatId,req.session.consent);
+      setChatNonActive(req.session.chatId, req.session.consent);
       delete req.session.chatId;
     }
     const status  = "ACTIVE";
@@ -128,6 +175,10 @@ const createChat = async (req, res) => {
     });
   } catch (error) {
     console.error('Error saat membuat chat:', error);
+    // (BARU) Berikan detail error jika dari axios
+    if (error.response) {
+      console.error('Error data from Google:', error.response.data);
+    }
     res.status(500).json({ error: 'Gagal membuat chat' });
   }
 };

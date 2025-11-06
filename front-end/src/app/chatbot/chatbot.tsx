@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
+import ReCAPTCHA from 'react-google-recaptcha';
 import { Send, Bot } from 'lucide-react';
 
 const initialMessages = [
@@ -11,93 +12,114 @@ export default function Chatbot() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
-  // --- (BARU) LANGKAH 1: Tambahkan State untuk Modal dan Persetujuan ---
   const [showConsentModal, setShowConsentModal] = useState(false);
-  // Tipe state: null (belum memilih), 'true' (setuju), 'false' (tidak setuju)
   const [userConsent, setUserConsent] = useState<string | null>(null);
+  const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
 
+  // --- (PERUBAHAN 1): Fungsi createNewChatSession dipindah ke luar
+  // dan sekarang menerima token sebagai argumen
+  const createNewChatSession = async (captchaToken: string) => {
+    try {
+      const res = await fetch('http://localhost:5000/api/create-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json', // (PENTING) Tambahkan header ini
+        },
+        credentials: 'include',
+        body: JSON.stringify({ captchaToken: captchaToken }), // (PENTING) Kirim token
+      });
 
-  // PERUBAHAN 1: Membuat sesi chat baru secara otomatis
-  useEffect(() => {
-    // ... (Fungsi createNewChatSession tetap sama)
-    const createNewChatSession = async () => {
-      try {
-        const res = await fetch('http://localhost:5000/api/create-chat', {
-          method: 'POST',
-          credentials: 'include',
-        });
-        if (res.ok) {
-          console.log('Sesi chat berhasil dibuat atau diperbarui.');
-        } else {
-          throw new Error('Gagal membuat sesi chat');
-        }
-      } catch (error) {
-        console.error('Error saat membuat sesi chat:', error);
-        setMessages((prev) => [
-          ...prev,
-          { sender: 'bot', text: '⚠️ Gagal terhubung ke server. Silakan muat ulang halaman.' },
-        ]);
+      if (res.ok) {
+        console.log('Sesi chat berhasil dibuat atau diperbarui.');
+        // (PENTING) Hanya set verified JIKA backend sukses
+        setIsCaptchaVerified(true);
+      } else {
+        // (BARU) Tangkap pesan error spesifik dari backend
+        const errorData = await res.json();
+        throw new Error(errorData.message || 'Gagal membuat sesi chat');
       }
-    };
-    createNewChatSession();
+    } catch (error: any) {
+      console.error('Error saat membuat sesi chat:', error);
+      setMessages((prev) => [
+        ...prev,
+        // (BARU) Tampilkan error yang lebih jelas
+        { sender: 'bot', text: `⚠️ Gagal verifikasi: ${error.message}. Silakan muat ulang halaman.` },
+      ]);
+      // Pastikan UI tetap terkunci jika gagal
+      setIsCaptchaVerified(false);
+    }
+  };
 
-    // --- (BARU) LANGKAH 2: Cek localStorage saat Komponen Dimuat ---
+
+  // --- (PERUBAHAN 2): useEffect HANYA menangani modal persetujuan
+  useEffect(() => {
     const storedConsent = localStorage.getItem('chatConsent');
     if (storedConsent) {
-      // Jika sudah ada, atur state sesuai pilihan sebelumnya
-    setShowConsentModal(true);
+      setUserConsent(storedConsent);
+      setShowConsentModal(false);
     } else {
-      // Jika belum ada, tampilkan modal persetujuan
       setUserConsent(null);
+      setShowConsentModal(true);
     }
+    // Panggilan createNewChatSession() DIHAPUS dari sini
   }, []); // Tetap [] agar hanya berjalan sekali saat mount
 
-  // --- (BARU) LANGKAH 4: Buat Fungsi handleConsent ---
-const handleConsent = (hasAgreed: boolean) => {
-  const consentValue = hasAgreed ? 'true' : 'false';
-
-  // Langsung perbarui state saja
-  setUserConsent(consentValue);
-  // Tutup modal
-  setShowConsentModal(false);
-  const postConsent = async () => {
+  
+  // --- (handleConsent tidak berubah) ---
+  const handleConsent = (hasAgreed: boolean) => {
+    const consentValue = hasAgreed ? 'true' : 'false';
+    localStorage.setItem('chatConsent', consentValue);
+    setUserConsent(consentValue);
+    setShowConsentModal(false);
+    
+    const postConsent = async () => {
       try {
         const res = await fetch('http://localhost:5000/api/consent', {
           method: 'POST',
-          // 2. Tambahkan headers untuk memberitahu server bahwa Anda mengirim JSON
           headers: {
             'Content-Type': 'application/json',
           },
-          // 3. Tambahkan body yang berisi data Anda
-          //    Gunakan JSON.stringify untuk mengubah objek JavaScript menjadi string JSON
           body: JSON.stringify({ consent: consentValue }), 
           credentials: 'include',
         });
         if (res.ok) {
-          console.log('Sesi chat berhasil dibuat atau diperbarui.');
+          console.log('Persetujuan berhasil dikirim.');
         } else {
-          throw new Error('Gagal membuat sesi chat');
+          throw new Error('Gagal mengirim persetujuan');
         }
       } catch (error) {
-        console.error('Error saat membuat sesi chat:', error);
-        
+        console.error('Error saat mengirim persetujuan:', error);
       }
     }
     postConsent();
 
-  if (!hasAgreed) {
-    console.warn("Pengguna tidak setuju. History chat tidak akan disimpan.");
-    setMessages((prev) => [
-        ...prev,
-        { sender: 'bot', text: 'Baik, history chat untuk sesi ini tidak akan disimpan.' },
-    ]);
-  }
-};
+    if (!hasAgreed) {
+      console.warn("Pengguna tidak setuju. History chat tidak akan disimpan.");
+      setMessages((prev) => [
+          ...prev,
+          { sender: 'bot', text: 'Baik, history chat untuk sesi ini tidak akan disimpan.' },
+      ]);
+    }
+  };
 
 
-  // PERUBAHAN 2: Fungsi pengiriman diubah
-  // --- (MODIFIKASI) LANGKAH 6: Terima `canSaveHistory` sebagai parameter ---
+  // --- (PERUBAHAN 3): handleCaptchaChange SEKARANG memanggil createNewChatSession
+  const handleCaptchaChange = (token: string | null) => {
+    if (token) {
+      // Jika token ada, kirim ke backend untuk verifikasi & buat sesi
+      console.log("CAPTCHA token diterima, mengirim ke backend...", token);
+      createNewChatSession(token);
+    } else {
+      // Jika token null (misal, expired)
+      console.log("CAPTCHA challenge failed or expired.");
+      setIsCaptchaVerified(false);
+    }
+  };
+
+
+  // --- (sendMessageToServer tidak berubah) ---
   const sendMessageToServer = async (userMsg: string, canSaveHistory: boolean) => {
     try {
       setLoading(true);
@@ -112,7 +134,6 @@ const handleConsent = (hasAgreed: boolean) => {
       });
 
       if (!res.ok) {
-        // ... (sisa logika error tetap sama)
         const errorData = await res.json();
         if (errorData.refresh) {
           window.location.reload(); 
@@ -124,7 +145,6 @@ const handleConsent = (hasAgreed: boolean) => {
       return data.reply || 'Maaf, saya tidak dapat menemukan jawaban.';
     } catch (error) {
       console.error('Error fetching from Node.js backend:', error);
-      // ... (sisa logika error tetap sama)
       if (error instanceof Error) {
         return `⚠️ Gagal terhubung: ${error.message}`;
       }
@@ -134,31 +154,29 @@ const handleConsent = (hasAgreed: boolean) => {
     }
   };
 
-  // --- (MODIFIKASI) LANGKAH 5: Modifikasi Logika Pengiriman Chat ---
-  const handleSend = async () => {
-    if (!input.trim() || showConsentModal) return; // Jangan kirim jika modal masih aktif
 
+  // --- (handleSend tidak berubah) ---
+  const handleSend = async () => {
+    if (!input.trim() || showConsentModal || !isCaptchaVerified) return;
     const userMsg = input;
     setMessages((prev) => [...prev, { sender: 'user', text: userMsg }]);
     setInput('');
-
-    // Dapatkan status persetujuan terbaru dari state
     const canSaveHistory = userConsent === 'true';
-
-    // Panggil fungsi yang sudah diubah dengan parameter baru
     const botResponse = await sendMessageToServer(userMsg, canSaveHistory);
     setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
   };
+
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // (Sisa kode JSX tidak berubah)
+
+  // --- (Bagian JSX tidak ada perubahan, semua logika sudah benar) ---
   return (
     <section className="min-h-screen flex items-center justify-center bg-gray-900 p-4 font-sans relative">
       
-      {/* --- (BARU) LANGKAH 3: Buat Komponen Modal --- */}
+      {/* Modal Persetujuan */}
       {showConsentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
           <div className="bg-neutral-800 p-6 rounded-lg shadow-lg max-w-sm w-full text-center border border-neutral-700">
@@ -188,8 +206,8 @@ const handleConsent = (hasAgreed: boolean) => {
 
       {/* Konten Chatbot Utama */}
       <div className="w-full max-w-4xl bg-neutral-800 border border-neutral-700 rounded-2xl shadow-2xl flex flex-col min-h-[700px]">
+        {/* Header */}
         <header className="flex items-center gap-4 bg-neutral-900/70 backdrop-blur-sm border-b border-neutral-700 px-6 py-4 rounded-t-2xl">
-          {/* ... (isi header tetap sama) ... */}
           <div className="p-2 bg-blue-500/20 rounded-full">
             <Bot className="w-6 h-6 text-blue-400" />
           </div>
@@ -202,8 +220,8 @@ const handleConsent = (hasAgreed: boolean) => {
           </div>
         </header>
 
+        {/* Area Pesan */}
         <div className="flex-1 overflow-y-auto flex flex-col gap-5 px-6 py-4">
-          {/* ... (mapping pesan tetap sama) ... */}
           {messages.map((msg, i) => (
             <div
               key={i}
@@ -217,7 +235,6 @@ const handleConsent = (hasAgreed: boolean) => {
             </div>
           ))}
           {loading && (
-            // ... (indikator loading tetap sama) ...
             <div className="self-start flex items-center gap-2">
               <div className="p-2 bg-neutral-700 rounded-full">
                 <Bot className="w-5 h-5 text-gray-300" />
@@ -232,6 +249,28 @@ const handleConsent = (hasAgreed: boolean) => {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Area Verifikasi CAPTCHA */}
+        { !showConsentModal && !isCaptchaVerified && (
+          <div className="flex flex-col items-center justify-center px-6 py-4 border-t border-neutral-700">
+            <p className="text-sm text-gray-300 mb-3">Silakan verifikasi untuk memulai chat.</p>
+            
+            {recaptchaSiteKey ? (
+              <ReCAPTCHA
+                sitekey={recaptchaSiteKey}
+                onChange={handleCaptchaChange}
+                theme="dark" 
+              />
+            ) : (
+              <p className="text-sm text-red-500 font-medium px-4 py-2 bg-red-900/20 rounded-md">
+                Error: Kunci ReCAPTCHA tidak ditemukan.
+                <br />
+                Pastikan .env sudah benar dan server sudah di-restart.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Area Input */}
         <div className="flex items-center gap-3 border-t border-neutral-700 bg-neutral-900/50 backdrop-blur-sm px-4 py-3 rounded-b-2xl">
           <input
             type="text"
@@ -239,14 +278,12 @@ const handleConsent = (hasAgreed: boolean) => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !loading && handleSend()}
-            // (BARU) Nonaktifkan input jika modal aktif
-            disabled={loading || showConsentModal}
+            disabled={loading || showConsentModal || !isCaptchaVerified}
             className="flex-1 bg-neutral-800 text-gray-100 rounded-xl border border-neutral-700 focus:ring-2 focus:ring-blue-500 focus:outline-none px-4 py-3 transition-all duration-300 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
-            // (BARU) Nonaktifkan tombol jika modal aktif
-            disabled={loading || !input.trim() || showConsentModal}
+            disabled={loading || !input.trim() || showConsentModal || !isCaptchaVerified}
             className="p-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-full disabled:bg-neutral-600 disabled:cursor-not-allowed transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <Send className="w-5 h-5" />
