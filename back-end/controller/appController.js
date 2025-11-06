@@ -111,10 +111,10 @@ const postMsg = async (req, res) => {
 
 const createChat = async (req, res) => {
   try {
-    // --- (MULAI PERBAIKAN CAPTCHA) ---
+    // --- (MULAI PERBAIKAN CAPTCHA & CONSENT) ---
 
-    // 1. Ambil token CAPTCHA dari request body frontend
-    const { captchaToken } = req.body;
+    // 1. Ambil token CAPTCHA dan CONSENT dari body
+    const { captchaToken, consent } = req.body; // <-- PERUBAHAN DI SINI
 
     if (!captchaToken) {
       return res.status(400).json({ error: true, message: 'Verifikasi CAPTCHA diperlukan.' });
@@ -138,7 +138,6 @@ const createChat = async (req, res) => {
     // params.append('remoteip', req.ip);
 
     // 4. Kirim permintaan verifikasi ke Google
-    // Kirim 'params' sebagai data (argumen kedua axios.post)
     const verificationResponse = await axios.post(verificationUrl, params, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
@@ -154,20 +153,26 @@ const createChat = async (req, res) => {
       return res.status(401).json({ error: true, message: 'Verifikasi CAPTCHA gagal. Silakan coba lagi.' });
     }
 
-    // --- (SELESAI PERBAIKAN CAPTCHA) ---
+    // --- (SELESAI VERIFIKASI CAPTCHA) ---
 
 
     // 6. (Logika Asli Anda) - Hanya berjalan jika CAPTCHA berhasil
     if (req.session.chatId){
       setChatNonActive(req.session.chatId, req.session.consent);
       delete req.session.chatId;
+      delete req.session.consent; // Hapus juga session consent lama
     }
     const status  = "ACTIVE";
 
     // Buat dan simpan chat
     const newChat = new Chat({ status });
     await newChat.save();
+    
+    // --- (PERBAIKAN: Simpan chatID DAN consent ke session) ---
     req.session.chatId = newChat._id;
+    req.session.consent = consent || 'false'; // <-- PERUBAHAN DI SINI
+
+    console.log(`Sesi chat ${newChat._id} dibuat dengan consent=${req.session.consent}`);
 
     res.status(201).json({
       message: 'Chat berhasil dibuat',
@@ -286,39 +291,39 @@ setInterval(async () => {
   }
 }, 2 * 60 * 1000); // periksa setiap 1 menit
 
-const postConsent = async (req, res) => {
-  if (!req.session.chatId) {
-    return res.status(400).json({ 
-      error: true,
-      refresh: true,
-      message: 'Chat harus dibuat terlebih dahulu.'
-    });
-  }
-  // Cek apakah chat dengan chatId ini masih aktif
-  const chat = await Chat.findById(req.session.chatId);
+// const postConsent = async (req, res) => {
+//   if (!req.session.chatId) {
+//     return res.status(400).json({ 
+//       error: true,
+//       refresh: true,
+//       message: 'Chat harus dibuat terlebih dahulu.'
+//     });
+//   }
+//   // Cek apakah chat dengan chatId ini masih aktif
+//   const chat = await Chat.findById(req.session.chatId);
 
-  if (!chat) {
-    return res.status(404).json({
-      error: true,
-      refresh: true,
-      message: 'Chat tidak ditemukan.'
-    });
-  }
+//   if (!chat) {
+//     return res.status(404).json({
+//       error: true,
+//       refresh: true,
+//       message: 'Chat tidak ditemukan.'
+//     });
+//   }
 
-  if (chat.status !== "ACTIVE") {
-    return res.status(400).json({
-      error: true,
-      refresh: true,
-      message: 'Chat sudah tidak aktif. Silakan buat chat baru.'
-    });
-  }
+//   if (chat.status !== "ACTIVE") {
+//     return res.status(400).json({
+//       error: true,
+//       refresh: true,
+//       message: 'Chat sudah tidak aktif. Silakan buat chat baru.'
+//     });
+//   }
 
-  const { consent } = req.body;
+//   const { consent } = req.body;
 
-  req.session.consent = consent;
-  return res.status(200).json({
-      error: false,
-      message: 'berhasil consent'
-    });
-};
-module.exports = { getChat, createChat, nonactiveChat, postMsg, setInterval, postHeartbeat, postConsent };
+//   req.session.consent = consent;
+//   return res.status(200).json({
+//       error: false,
+//       message: 'berhasil consent'
+//     });
+// };
+module.exports = { getChat, createChat, nonactiveChat, postMsg, setInterval, postHeartbeat };

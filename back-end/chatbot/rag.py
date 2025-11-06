@@ -13,7 +13,7 @@ from difflib import SequenceMatcher
 from langchain_chroma import Chroma
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 try:
     from langdetect import detect as lang_detect
@@ -26,12 +26,12 @@ load_dotenv()
 
 PERSIST_DIR = "chroma_db"
 EMBED_MODEL = "nomic-embed-text"
-LLM_MODEL = "gpt-oss:20b"
+LLM_MODEL = "qwen2.5:7b-instruct"
 DEBUG = False
 MAX_CONTEXT_LENGTH = 7000
 
 MONGO_URI = os.getenv("MONGO_URI") 
-MONGO_DB_NAME = "kui" 
+MONGO_DB_NAME = "skripsi" 
 MONGO_COLLECTION_NAME = "knowledgebase"
 
 # --- Inisialisasi Model ---

@@ -5,7 +5,7 @@ const {
   nonactiveChat, 
   postMsg, 
   postHeartbeat,
-  postConsent,
+  // postConsent,
 } = require("../controller/appController.js");
 
 const adminRouter = require('./adminroutes.js');
@@ -19,7 +19,7 @@ router.use('/admin', adminRouter);
 // App routes
 router.get('/chat', getChat);
 router.post('/create-chat', createChat);
-router.post('/consent', postConsent);
+// router.post('/consent', postConsent);
 router.get('/nonactive', nonactiveChat);
 router.post('/send-msg', postMsg);
 router.post('/heartbeat', postHeartbeat);
