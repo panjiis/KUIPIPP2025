@@ -1,4 +1,4 @@
-# rag.py - COMPLETE VERSION
+# rag.py - VERSI GEMINI API (Lengkap dan Diperbaiki)
 import os
 import re
 import shutil
@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 from difflib import SequenceMatcher
 
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings, ChatOllama
+# --- PERUBAHAN: Import Google GenAI ---
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -24,24 +25,33 @@ except Exception:
 # --- Konfigurasi Global ---
 load_dotenv() 
 
+# --- PERUBAHAN: Konfigurasi untuk Google API Key ---
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    print("⚠️ Peringatan: GOOGLE_API_KEY tidak ditemukan di .env file.")
+
 PERSIST_DIR = "chroma_db"
-EMBED_MODEL = "nomic-embed-text"
-LLM_MODEL = "qwen2.5:7b-instruct"
+# --- PERUBAHAN: Model diubah ke Google Gemini ---
+EMBED_MODEL = "models/text-embedding-004"
+LLM_MODEL = "gemini-2.5-flash" # Anda bisa ganti ke model Gemini lain jika perlu
 DEBUG = False
-MAX_CONTEXT_LENGTH = 7000
+MAX_CONTEXT_LENGTH = 7000 # Gemini memiliki konteks lebih besar, tapi kita jaga untuk RAG
 
 MONGO_URI = os.getenv("MONGO_URI") 
-MONGO_DB_NAME = "skripsi" 
+MONGO_DB_NAME = "kui" 
 MONGO_COLLECTION_NAME = "knowledgebase"
 
-# --- Inisialisasi Model ---
+# --- PERUBAHAN: Inisialisasi Model Google GenAI ---
 try:
-    embeddings = OllamaEmbeddings(model=EMBED_MODEL)
-    print(f"Ollama Embeddings ({EMBED_MODEL}) dimuat.")
-    llm = ChatOllama(model=LLM_MODEL, temperature=0.25)
-    print(f"Ollama Chat LLM ({LLM_MODEL}) dimuat.")
+    embeddings = GoogleGenerativeAIEmbeddings(model=EMBED_MODEL, google_api_key=GOOGLE_API_KEY)
+    print(f"Google GenAI Embeddings ({EMBED_MODEL}) dimuat.")
+    
+    llm = ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.25, google_api_key=GOOGLE_API_KEY)
+    print(f"Google GenAI Chat LLM ({LLM_MODEL}) dimuat.")
+    
 except Exception as e:
-    print(f"⚠️ Kesalahan inisialisasi model Ollama: {e}")
+    print(f"⚠️ Kesalahan inisialisasi model Google GenAI: {e}")
+    print("   Pastikan GOOGLE_API_KEY sudah benar dan paket 'langchain-google-genai' terinstal.")
     embeddings = None
     llm = None
 
@@ -54,6 +64,7 @@ def get_chroma_db():
     """Context manager untuk membuka dan menutup ChromaDB dengan benar"""
     db = None
     try:
+        # Fungsi ini sekarang akan menggunakan 'embeddings' dari Google
         db = Chroma(persist_directory=PERSIST_DIR, embedding_function=embeddings)
         yield db
     finally:
@@ -123,6 +134,7 @@ def summarize_context_if_needed(context: str) -> str:
     if not llm: return context
     if len(context) <= MAX_CONTEXT_LENGTH: return context
     print("⚙️ Context too long, asking LLM to summarize...")
+    # Fungsi ini sekarang akan menggunakan LLM Gemini
     summary_prompt = f"Summarize the following context into concise factual bullets. Preserve facts and document references:\n\n{context}"
     resp = llm.invoke(summary_prompt)
     return resp.content.strip()
@@ -130,13 +142,15 @@ def summarize_context_if_needed(context: str) -> str:
 def ask(question: str) -> str:
     """Fungsi untuk menjawab pertanyaan menggunakan RAG"""
     if not llm or not embeddings:
-        return "⚠️ Sistem RAG belum siap. Cek konfigurasi backend dan pastikan Ollama berjalan."
+        # --- PERUBAHAN: Pesan error disesuaikan ---
+        return "⚠️ Sistem RAG belum siap. Cek konfigurasi backend dan pastikan GOOGLE_API_KEY sudah benar."
     
     try:
         with get_chroma_db() as db:
             retriever = db.as_retriever(search_kwargs={"k": 8})
             
             user_lang = detect_language(question)
+            # Retriever sekarang menggunakan Google Embeddings untuk mencari
             docs = retriever.invoke(question)
             top_docs = rerank_local(docs, question, top_k=6)
             
@@ -156,6 +170,7 @@ def ask(question: str) -> str:
             context_combined = summarize_context_if_needed(context_combined)
             formatted_history = "\n".join([f"Human: {h[0]}\nAI: {h[1]}" for h in conversation_history[-6:]]) if conversation_history else "None"
             
+            # Chain sekarang menggunakan LLM Gemini
             chain = prompt | llm
             inputs = {
                 "context_snippets": context_combined, 
@@ -188,20 +203,16 @@ def reset_memory():
     conversation_history = []
     print("Memory percakapan telah direset.")
 
-# Ganti fungsi load_from_mongo() di rag.py Anda dengan ini:
-
 def load_from_mongo():
     print(f"Mencoba terhubung ke MongoDB: {MONGO_DB_NAME}/{MONGO_COLLECTION_NAME}")
     if not MONGO_URI:
         print("Error: MONGO_URI tidak ditemukan di environment variables.")
-        return []
+        return [] # Akan ditangkap oleh 'if not all_documents' di mainrag
     try:
         client = MongoClient(MONGO_URI)
         db = client[MONGO_DB_NAME]
         collection = db[MONGO_COLLECTION_NAME]
         
-        # --- PERUBAHAN UTAMA DI SINI ---
-        # Tambahkan filter untuk hanya mengambil dokumen dengan status "ACTIVE"
         print("Filter diterapkan: Hanya dokumen dengan status 'ACTIVE' yang akan diambil.")
         mongo_docs = list(collection.find({ "status": "ACTIVE" }))
         
@@ -218,7 +229,7 @@ def load_from_mongo():
         
     except Exception as e:
         print(f"Error saat memuat dari MongoDB: {e}")
-        return []
+        return [] # Akan ditangkap oleh 'if not all_documents' di mainrag
 
 def force_cleanup_chroma():
     """Paksa bersihkan semua koneksi ChromaDB"""
@@ -227,9 +238,12 @@ def force_cleanup_chroma():
 
 def mainrag():
     """Fungsi utama untuk proses indexing RAG"""
+    
+    # --- PERBAIKAN ERROR HANDLING UNTUK app.py ---
+    
     if embeddings is None:
-        print("Embeddings gagal dimuat. Proses RAG (indexing) dibatalkan.")
-        return 0
+        # Melempar exception agar exitcode != 0
+        raise Exception("Embeddings Google GenAI gagal dimuat. Proses RAG (indexing) dibatalkan.")
     
     force_cleanup_chroma()
     
@@ -265,25 +279,27 @@ def mainrag():
                 else:
                     print("\n❌ GAGAL: Tidak dapat mengakses folder chroma_db.")
                     print("   SOLUSI: Tutup SEMUA instance Python dan coba lagi.")
-                    return 0
+                    # Melempar exception agar exitcode != 0
+                    raise Exception("GAGAL: Tidak dapat mengakses folder chroma_db.")
     
     print("\nMemulai proses RAG (Indexing) dari MongoDB...")
     all_documents = load_from_mongo()
     
     if not all_documents:
-        print("Peringatan: Tidak ada dokumen yang ditemukan di MongoDB.")
-        return 0
+        # Melempar exception agar exitcode != 0
+        raise Exception("Peringatan: Tidak ada dokumen (status=ACTIVE) yang ditemukan di MongoDB.")
     
     print(f"Memecah {len(all_documents)} dokumen menjadi chunks...")
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     texts = text_splitter.split_documents(all_documents)
     
     if not texts:
-        print("Peringatan: Gagal memecah dokumen menjadi chunks.")
-        return 0
+        # Melempar exception agar exitcode != 0
+        raise Exception("Peringatan: Gagal memecah dokumen menjadi chunks.")
     
-    print(f"Membuat embeddings untuk {len(texts)} chunks dan menyimpan ke ChromaDB...")
+    print(f"Membuat embeddings (Google) untuk {len(texts)} chunks dan menyimpan ke ChromaDB...")
     try:
+        # --- PERUBAHAN: Indexing sekarang menggunakan Google Embeddings ---
         Chroma.from_documents(
             documents=texts, 
             embedding=embeddings, 
@@ -291,15 +307,18 @@ def mainrag():
         )
         print(f"✓ Vector store di '{PERSIST_DIR}' berhasil dibuat!")
         force_cleanup_chroma()
-        return len(texts)
+        return len(texts) # Sukses
         
     except Exception as e:
         print(f"❌ Error saat membuat vector store: {e}")
-        return 0
+        # Melempar kembali exception agar exitcode != 0
+        raise e
 
 if __name__ == "__main__":
+    # Jalankan indexing terlebih dahulu
     mainrag()
-    print("\nSistem RAG siap. Ketik 'exit' untuk keluar.")
+    
+    print("\nSistem RAG (Gemini) siap. Ketik 'exit' untuk keluar.")
     print("="*30)
     while True:
         q = input("Anda: ")

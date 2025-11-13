@@ -8,8 +8,7 @@ import importlib
 # Import rag module
 import rag
 
-# Reload module untuk memastikan menggunakan versi terbaru
-importlib.reload(rag)
+# --- importlib.reload(rag) DIPINDAH DARI SINI ---
 
 app = FastAPI()
 
@@ -53,6 +52,13 @@ def do_rag_route():
     print("="*50)
     
     try:
+        # --- PERUBAHAN DI SINI ---
+        # Reload module rag SETIAP KALI endpoint ini dipanggil.
+        # Ini memastikan kita selalu menggunakan versi rag.py terbaru
+        # tanpa perlu me-restart server FastAPI.
+        importlib.reload(rag)
+        print("Modul 'rag' telah di-reload.")
+        
         # Paksa cleanup sebelum memulai proses RAG
         print("Membersihkan memori sebelum proses RAG...")
         gc.collect()
@@ -60,11 +66,13 @@ def do_rag_route():
         print("Memulai proses RAG di dalam proses terpisah...")
         rag_process = multiprocessing.Process(target=rag.mainrag)
         rag_process.start()
-        rag_process.join()
+        rag_process.join() # Menunggu proses selesai
         
         # Cleanup setelah proses selesai
         gc.collect()
         
+        # Logika ini sekarang akan berfungsi dengan benar
+        # setelah perbaikan di rag.py
         if rag_process.exitcode == 0:
             print("="*50)
             print("✓ Proses RAG berhasil diselesaikan!")
@@ -76,18 +84,18 @@ def do_rag_route():
             }
         else:
             print("="*50)
-            print("⚠️ Proses RAG selesai dengan warning")
+            print("⚠️ Proses RAG GAGAL (exit code non-zero).")
             print("="*50)
             return {
-                "Status": "Warning", 
-                "Message": "RAG process completed with warnings. Check logs."
+                "Status": "Error", 
+                "Message": "RAG process FAILED. Check backend logs for exceptions."
             }
             
     except Exception as e:
-        print(f"❌ Error di /do-rag: {e}")
+        print(f"❌ Error di /do-rag (level FastAPI): {e}")
         return {
             "Status": "Error", 
-            "Message": f"Failed to complete RAG process: {str(e)}"
+            "Message": f"Failed to start RAG process: {str(e)}"
         }
 
 @app.get("/clear-cache")
