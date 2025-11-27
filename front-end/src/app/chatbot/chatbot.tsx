@@ -1,12 +1,20 @@
-// chatbot.tsx
 'use client';
-import { useState, useRef, useEffect } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
 import ReCAPTCHA from 'react-google-recaptcha';
 import { Send, Bot, Loader2 } from 'lucide-react';
-// 1. Impor useTheme
-import { useTheme } from 'next-themes'; 
+import { useTheme } from 'next-themes';
 
-const initialMessages = [
+// 1. Import Library Markdown
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+type Message = {
+  sender: 'bot' | 'user';
+  text: string;
+};
+
+const initialMessages: Message[] = [
   {
     sender: 'bot',
     text: 'Selamat datang! Ada yang bisa saya bantu terkait informasi kampus?',
@@ -14,20 +22,22 @@ const initialMessages = [
 ];
 
 export default function Chatbot() {
-  // 2. Dapatkan tema saat ini
-  const { theme } = useTheme(); 
+  const { theme } = useTheme();
 
-  const [messages, setMessages] = useState(initialMessages);
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Pastikan variabel ini ada di .env.local Anda
   const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
 
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [userConsent, setUserConsent] = useState<string | null>(null);
   const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
 
-  // ... (Semua fungsi logika Anda: createNewChatSession, handleConsent, handleCaptchaChange, sendMessageToServer, handleSend tetap sama) ...
+  // --- LOGIKA SESI DAN CAPTCHA ---
+
   const createNewChatSession = async (captchaToken: string) => {
     const consentValue = userConsent || 'false';
     try {
@@ -63,10 +73,12 @@ export default function Chatbot() {
       setIsCaptchaVerified(false);
     }
   };
+
   useEffect(() => {
     setUserConsent(null);
     setShowConsentModal(true);
   }, []);
+
   const handleConsent = (hasAgreed: boolean) => {
     const consentValue = hasAgreed ? 'true' : 'false';
     setUserConsent(consentValue);
@@ -82,6 +94,7 @@ export default function Chatbot() {
       ]);
     }
   };
+
   const handleCaptchaChange = (token: string | null) => {
     if (token) {
       console.log('CAPTCHA token diterima, mengirim ke backend...', token);
@@ -91,6 +104,9 @@ export default function Chatbot() {
       setIsCaptchaVerified(false);
     }
   };
+
+  // --- LOGIKA PENGIRIMAN PESAN ---
+
   const sendMessageToServer = async (
     userMsg: string,
     canSaveHistory: boolean
@@ -125,6 +141,7 @@ export default function Chatbot() {
       setLoading(false);
     }
   };
+
   const handleSend = async () => {
     if (!input.trim() || showConsentModal || !isCaptchaVerified) return;
     const userMsg = input;
@@ -134,14 +151,16 @@ export default function Chatbot() {
     const botResponse = await sendMessageToServer(userMsg, canSaveHistory);
     setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
   };
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // --- RENDER TAMPILAN ---
+
   return (
-    // PERBAIKAN WARNA: Latar belakang utama
     <section className='min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-950 p-4 font-sans relative'>
-      {/* Modal Persetujuan (PERBAIKAN WARNA) */}
+      {/* Modal Persetujuan */}
       {showConsentModal && (
         <div className='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4'>
           <div className='bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center border border-gray-200 dark:border-gray-700'>
@@ -170,9 +189,9 @@ export default function Chatbot() {
         </div>
       )}
 
-      {/* Konten Chatbot Utama (PERBAIKAN WARNA) */}
+      {/* Konten Chatbot Utama */}
       <div className='w-full max-w-4xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl flex flex-col min-h-[700px]'>
-        {/* Header (PERBAIKAN WARNA) */}
+        {/* Header */}
         <header className='flex items-center gap-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700 px-6 py-4 rounded-t-2xl'>
           <div className='p-2 bg-blue-100 rounded-full'>
             <Bot className='w-6 h-6 text-blue-600' />
@@ -188,20 +207,76 @@ export default function Chatbot() {
           </div>
         </header>
 
-        {/* Area Pesan (PERBAIKAN WARNA) */}
+        {/* Area Pesan */}
         <div className='flex-1 overflow-y-auto flex flex-col gap-5 px-6 py-4 bg-gray-50 dark:bg-gray-800'>
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`max-w-[85%] px-5 py-3 rounded-2xl text-base break-words shadow-sm ${
+              className={`max-w-[85%] px-5 py-3 rounded-2xl text-base shadow-sm ${
                 msg.sender === 'user'
                   ? 'self-end bg-blue-500 text-white rounded-br-lg'
                   : 'self-start bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-lg'
               }`}
             >
-              {msg.text}
+              {/* --- PERBAIKAN DISINI: MENGGUNAKAN REACT MARKDOWN --- */}
+              {/* --- REACT MARKDOWN (tanpa any & tanpa error ESLint) --- */}
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: (props: React.HTMLAttributes<HTMLParagraphElement>) => (
+                    <p className='mb-2 last:mb-0 leading-relaxed' {...props}>
+                      {props.children}
+                    </p>
+                  ),
+
+                  ul: (props: React.HTMLAttributes<HTMLUListElement>) => (
+                    <ul
+                      className='list-disc list-outside ml-4 mb-2 space-y-1'
+                      {...props}
+                    >
+                      {props.children}
+                    </ul>
+                  ),
+
+                  ol: (props: React.OlHTMLAttributes<HTMLOListElement>) => (
+                    <ol
+                      className='list-decimal list-outside ml-4 mb-2 space-y-1'
+                      {...props}
+                    >
+                      {props.children}
+                    </ol>
+                  ),
+
+                  li: (props: React.LiHTMLAttributes<HTMLLIElement>) => (
+                    <li className='pl-1' {...props}>
+                      {props.children}
+                    </li>
+                  ),
+
+                  strong: (props: React.HTMLAttributes<HTMLElement>) => (
+                    <strong className='font-bold' {...props}>
+                      {props.children}
+                    </strong>
+                  ),
+
+                  a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+                    <a
+                      className='text-blue-200 hover:text-white underline'
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      {...props}
+                    >
+                      {props.children}
+                    </a>
+                  ),
+                }}
+              >
+                {msg.text}
+              </ReactMarkdown>
             </div>
           ))}
+
+          {/* Animasi Loading */}
           {loading && (
             <div className='self-start flex items-center gap-2'>
               <div className='p-2 bg-gray-200 dark:bg-gray-700 rounded-full'>
@@ -217,7 +292,7 @@ export default function Chatbot() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Area Verifikasi CAPTCHA (PERBAIKAN WARNA) */}
+        {/* Area Verifikasi CAPTCHA */}
         {!showConsentModal && !isCaptchaVerified && (
           <div className='flex flex-col items-center justify-center px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
             <p className='text-sm text-gray-600 dark:text-gray-400 mb-3'>
@@ -228,7 +303,6 @@ export default function Chatbot() {
               <ReCAPTCHA
                 sitekey={recaptchaSiteKey}
                 onChange={handleCaptchaChange}
-                // 3. Terapkan tema ke reCAPTCHA
                 theme={theme === 'dark' ? 'dark' : 'light'}
               />
             ) : (
@@ -239,7 +313,7 @@ export default function Chatbot() {
           </div>
         )}
 
-        {/* Area Input (PERBAIKAN WARNA) */}
+        {/* Area Input */}
         <div className='flex items-center gap-3 border-t border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm px-4 py-3 rounded-b-2xl'>
           <input
             type='text'
@@ -258,9 +332,9 @@ export default function Chatbot() {
             className='p-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-full disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-blue-500'
           >
             {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+              <Loader2 className='w-5 h-5 animate-spin' />
             ) : (
-                <Send className='w-5 h-5' />
+              <Send className='w-5 h-5' />
             )}
           </button>
         </div>

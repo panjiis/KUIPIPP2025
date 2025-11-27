@@ -38,7 +38,7 @@ DEBUG = False
 MAX_CONTEXT_LENGTH = 7000 # Gemini memiliki konteks lebih besar, tapi kita jaga untuk RAG
 
 MONGO_URI = os.getenv("MONGO_URI") 
-MONGO_DB_NAME = "kui" 
+MONGO_DB_NAME = "skripsi" 
 MONGO_COLLECTION_NAME = "knowledgebase"
 
 # --- PERUBAHAN: Inisialisasi Model Google GenAI ---
