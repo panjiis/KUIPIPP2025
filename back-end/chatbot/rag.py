@@ -38,7 +38,7 @@ DEBUG = False
 MAX_CONTEXT_LENGTH = 7000 # Gemini memiliki konteks lebih besar, tapi kita jaga untuk RAG
 
 MONGO_URI = os.getenv("MONGO_URI") 
-MONGO_DB_NAME = "skripsi" 
+MONGO_DB_NAME = "kui" 
 MONGO_COLLECTION_NAME = "knowledgebase"
 
 # --- PERUBAHAN: Inisialisasi Model Google GenAI ---
@@ -220,8 +220,26 @@ def load_from_mongo():
         
         langchain_docs = []
         for doc in mongo_docs:
-            page_content = f"Topik Bahasan: {doc.get('topic')}\n\nInformasi Detail: {doc.get('content')}"
-            metadata = {"source": "mongodb", "topic": doc.get('topic'), "category": doc.get('category')}
+            # --- PERUBAHAN DI SINI ---
+            # Menggabungkan Kategori, Topik, dan Isi menjadi satu teks lengkap
+            # Gunakan .get() dengan default value kosong agar tidak error jika data null
+            category = doc.get('category', 'Umum')
+            topic = doc.get('topic', 'Tanpa Judul')
+            content = doc.get('content', '')
+
+            # Format text yang akan dibaca AI
+            page_content = (
+                f"Kategori: {category}\n"
+                f"Topik: {topic}\n\n"
+                f"Isi Dokumen:\n{content}"
+            )
+            
+            # Metadata tetap disimpan untuk referensi
+            metadata = {
+                "source": "mongodb", 
+                "topic": topic, 
+                "category": category
+            }
             langchain_docs.append(Document(page_content=page_content, metadata=metadata))
             
         print(f"Berhasil memuat {len(langchain_docs)} dokumen dari MongoDB yang berstatus ACTIVE.")
