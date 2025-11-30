@@ -17,7 +17,7 @@ type Message = {
 const initialMessages: Message[] = [
   {
     sender: 'bot',
-    text: 'Selamat datang! Ada yang bisa saya bantu terkait informasi kampus?',
+    text: 'Welcome! Can I help you with campus information?',
   },
 ];
 
@@ -67,7 +67,7 @@ export default function Chatbot() {
         ...prev,
         {
           sender: 'bot',
-          text: `⚠️ Gagal verifikasi: ${errorMessage}. Silakan muat ulang halaman.`,
+          text: `⚠️ Verification failed: ${errorMessage}. Please reload the page.`,
         },
       ]);
       setIsCaptchaVerified(false);
@@ -89,7 +89,7 @@ export default function Chatbot() {
         ...prev,
         {
           sender: 'bot',
-          text: 'Baik, history chat untuk sesi ini tidak akan disimpan.',
+          text: 'OK, the chat history for this session will not be saved.',
         },
       ]);
     }
@@ -159,7 +159,7 @@ export default function Chatbot() {
   // --- RENDER TAMPILAN ---
 
   return (
-    <section className='min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-950 p-4 font-sans relative'>
+    <section className='min-h-screen flex items-center justify-center bg-gray-100 dark:bg-black p-4 font-sans relative'>
       {/* Modal Persetujuan */}
       {showConsentModal && (
         <div className='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4'>
