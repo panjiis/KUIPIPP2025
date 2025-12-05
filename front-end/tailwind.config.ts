@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss'
 
 const config: Config = {
-  darkMode: 'class', // Ini adalah kunci untuk next-themes
+ darkMode: 'class', // Wajib ada
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -9,6 +9,7 @@ const config: Config = {
     './src/**/*.{js,ts,jsx,tsx,mdx}',
     './Admin/**/*.{js,ts,jsx,tsx}', // Pastikan ini mengarah ke folder Admin Anda
     './chatbot/**/*.{js,ts,jsx,tsx}', // Dan folder chatbot
+    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {

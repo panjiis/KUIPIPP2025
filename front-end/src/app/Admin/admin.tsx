@@ -12,14 +12,17 @@ import {
   UserPlus,
   DatabaseZap,
   ChevronsLeft,
-} from 'lucide-react';
-import KnowledgeView from './knowledge-view';
-import CreateAdminView from './create-admin-view';
+  UploadCloud,
 
-// Impor toast (pastikan sudah ada)
+} from 'lucide-react';
 import { toast } from 'sonner';
 
-// ... (Interface Anda tetap sama) ...
+// Import View Components
+import KnowledgeView from './knowledge-view';
+import CreateAdminView from './create-admin-view';
+import RagDetailView from './rag-detail-view';
+
+// --- Interfaces ---
 interface ChatSession {
   _id: string;
   status: string;
@@ -49,8 +52,8 @@ interface ChatHistoryResponse {
 interface DeleteOldChatsResponse {
   message: string;
 }
-type ActiveView = 'history' | 'knowledge' | 'createAdmin';
 
+type ActiveView = 'history' | 'knowledge' | 'createAdmin' | 'ragUpload';
 
 // --- KOMPONEN Sidebar ---
 const AdminSidebar = ({
@@ -66,6 +69,14 @@ const AdminSidebar = ({
 }) => {
   const [isOpen, setIsOpen] = useState(true);
 
+
+  // Hindari hydration mismatch
+
+
+  const handleNavClick = (view: ActiveView) => {
+    onNavClick(view);
+  };
+
   const navItems = [
     {
       view: 'history' as ActiveView,
@@ -78,6 +89,11 @@ const AdminSidebar = ({
       label: 'Knowledge Base',
     },
     {
+      view: 'ragUpload' as ActiveView,
+      icon: UploadCloud,
+      label: 'Upload & Auto-RAG',
+    },
+    {
       view: 'createAdmin' as ActiveView,
       icon: UserPlus,
       label: 'Create Admin',
@@ -86,62 +102,76 @@ const AdminSidebar = ({
 
   return (
     <aside
-      className={`flex flex-col h-screen p-4 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700
-                 transition-all duration-300 ease-in-out overflow-x-hidden
+      className={`flex flex-col h-screen bg-white dark:bg-neutral-900 border-r border-gray-200 dark:border-neutral-800
+                 transition-all duration-300 ease-in-out overflow-hidden z-20
                  ${isOpen ? 'w-64' : 'w-20'}`}
       onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => setIsOpen(false)}
     >
-      <div className='px-2 mb-8 h-8'>
+      {/* Header Sidebar */}
+      <div className='flex items-center h-16 px-6 border-b border-gray-100 dark:border-neutral-800 mb-4'>
         {isOpen ? (
-          <h1 className='text-2xl font-bold text-gray-900 dark:text-white whitespace-nowrap'>
-            Admin
+          <h1 className='text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent whitespace-nowrap'>
+            Admin Panel
           </h1>
         ) : (
-          <ChevronsLeft className='w-6 h-6 text-gray-900 dark:text-white' />
+          <ChevronsLeft className='w-6 h-6 text-gray-500 dark:text-gray-400 mx-auto' />
         )}
       </div>
 
-      <nav className='flex-1 flex flex-col gap-2'>
+      {/* Menu Items */}
+      <nav className='flex-1 flex flex-col gap-1 px-3'>
         {navItems.map((item) => (
           <button
             key={item.view}
-            onClick={() => onNavClick(item.view)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors
+            onClick={() => handleNavClick(item.view)}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                       ${!isOpen && 'justify-center'} 
                       ${
                         activeView === item.view
-                          ? 'bg-blue-600 text-white'
-                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-neutral-800 hover:text-gray-900 dark:hover:text-gray-200'
                       }`}
           >
-            <item.icon className='w-5 h-5 flex-shrink-0' />
+            <item.icon
+              className={`w-5 h-5 flex-shrink-0 ${
+                activeView === item.view ? 'text-blue-600 dark:text-blue-400' : ''
+              }`}
+            />
             {isOpen && <span className='whitespace-nowrap'>{item.label}</span>}
           </button>
         ))}
       </nav>
 
-      <button
-        onClick={onLogout}
-        disabled={isLoggingOut}
-        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 dark:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50
-                  ${!isOpen && 'justify-center'}`}
-      >
-        {isLoggingOut ? (
-          <Loader2 className='w-5 h-5 animate-spin flex-shrink-0' />
-        ) : (
-          <LogOut className='w-5 h-5 flex-shrink-0' />
-        )}
-        {isOpen && (
-          <span className='whitespace-nowrap'>
-            {isLoggingOut ? 'Logging out...' : 'Logout'}
-          </span>
-        )}
-      </button>
+      {/* [BARU] Footer Section: Theme Toggle & Logout */}
+      <div className='p-3 border-t border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-900/50'>
+        
+        {/* Theme Toggle Buttons */}
+        
+        {/* Logout Button */}
+        <button
+          onClick={onLogout}
+          disabled={isLoggingOut}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium 
+                    text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 
+                    transition-colors disabled:opacity-50
+                    ${!isOpen && 'justify-center'}`}
+        >
+          {isLoggingOut ? (
+            <Loader2 className='w-5 h-5 animate-spin flex-shrink-0' />
+          ) : (
+            <LogOut className='w-5 h-5 flex-shrink-0' />
+          )}
+          {isOpen && (
+            <span className='whitespace-nowrap'>
+              {isLoggingOut ? 'Keluar...' : 'Keluar'}
+            </span>
+          )}
+        </button>
+      </div>
     </aside>
   );
 };
-
 
 // --- KOMPONEN Tampilan History Chat ---
 const ChatHistoryView = () => {
@@ -153,7 +183,6 @@ const ChatHistoryView = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // ... (fetchChatList & handleSelectConversation tetap sama) ...
   const fetchChatList = async () => {
     try {
       setListLoading(true);
@@ -177,9 +206,11 @@ const ChatHistoryView = () => {
       setListLoading(false);
     }
   };
+
   useEffect(() => {
     fetchChatList();
   }, []);
+
   const handleSelectConversation = async (chatId: string) => {
     if (selectedConversation?._id === chatId) return;
     try {
@@ -215,7 +246,6 @@ const ChatHistoryView = () => {
     }
   };
 
-  // 1. Logika untuk menghapus SATU chat dipindah ke fungsi sendiri
   const executeDeleteChat = async (id: string) => {
     try {
       const res = await fetch(`http://localhost:5000/api/admin/chats/${id}`, {
@@ -237,40 +267,31 @@ const ChatHistoryView = () => {
     }
   };
 
-  // 2. handleDeleteChat sekarang memunculkan TOAST KONFIRMASI
   const handleDeleteChat = async (id: string) => {
     toast.warning('Konfirmasi Hapus', {
       description: 'Apakah Anda yakin ingin menghapus percakapan ini secara permanen?',
       action: {
         label: 'Ya, Hapus',
-        onClick: () => executeDeleteChat(id), // Memanggil fungsi eksekusi
+        onClick: () => executeDeleteChat(id),
       },
       cancel: {
         label: 'Batal',
-        // --- PERBAIKAN DI SINI ---
         onClick: () => {},
-        // -------------------------
       },
-      duration: 10000, // Beri waktu 10 detik sebelum hilang
+      duration: 5000,
     });
   };
 
-  // 3. Logika untuk menghapus CHAT LAMA dipindah ke fungsi sendiri
   const executeDeleteOldChats = async () => {
     try {
       const res = await fetch(
         'http://localhost:5000/api/admin/chats/delete-old',
-        {
-          method: 'DELETE',
-          credentials: 'include',
-        }
+        { method: 'DELETE', credentials: 'include' }
       );
-
       if (!res.ok) throw new Error('Gagal menghapus chat lama.');
-
       const result: DeleteOldChatsResponse = await res.json();
       toast.success(result.message);
-      fetchChatList(); // Refresh list
+      fetchChatList();
     } catch (err) {
       if (err instanceof Error) {
         toast.error(`Error: ${err.message}`);
@@ -280,21 +301,15 @@ const ChatHistoryView = () => {
     }
   };
 
-  // 4. handleDeleteOldChats sekarang memunculkan TOAST KONFIRMASI
   const handleDeleteOldChats = async () => {
     toast.warning('Konfirmasi Hapus', {
-      description: 'Apakah Anda yakin ingin menghapus semua chat lama (NONACTIVE > 7 hari)? Tindakan ini tidak dapat dibatalkan.',
+      description: 'Hapus semua chat lama (NONACTIVE > 7 hari)?',
       action: {
         label: 'Ya, Hapus Semua',
-        onClick: () => executeDeleteOldChats(), // Memanggil fungsi eksekusi
+        onClick: () => executeDeleteOldChats(),
       },
-      cancel: {
-        label: 'Batal',
-        // --- PERBAIKAN DI SINI ---
-        onClick: () => {},
-        // -------------------------
-      },
-      duration: 10000, // Beri waktu 10 detik sebelum hilang
+      cancel: { label: 'Batal', onClick: () => {} },
+      duration: 8000,
     });
   };
 
@@ -304,7 +319,7 @@ const ChatHistoryView = () => {
 
   return (
     <div className='p-4 sm:p-6 lg:p-8 h-full flex flex-col'>
-      {/* Header */}
+      {/* Header View */}
       <header className='mb-8 flex justify-between items-start'>
         <div>
           <h1 className='text-3xl font-bold text-gray-900 dark:text-white tracking-tight'>
@@ -315,8 +330,8 @@ const ChatHistoryView = () => {
           </p>
         </div>
         <button
-          onClick={handleDeleteOldChats} // Tombol ini sekarang memanggil toast
-          className='flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-4 py-2 rounded-lg'
+          onClick={handleDeleteOldChats}
+          className='flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors'
         >
           <Trash2 className='w-5 h-5' />
           <span>Hapus Chat Lama</span>
@@ -326,25 +341,25 @@ const ChatHistoryView = () => {
       {/* Chat History Section */}
       <section className='grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1'>
         {/* List */}
-        <div className='lg:col-span-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg h-[600px] flex flex-col'>
-          <div className='p-4 border-b border-gray-200 dark:border-gray-700'>
-            <h2 className='text-lg font-semibold flex items-center mb-4 gap-2 text-gray-900 dark:text-white'>
-              <MessageSquare /> Riwayat Percakapan
+        <div className='lg:col-span-1 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[600px] flex flex-col overflow-hidden'>
+          <div className='p-4 border-b border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-900/50'>
+            <h2 className='text-sm font-semibold flex items-center mb-3 gap-2 text-gray-700 dark:text-gray-200 uppercase tracking-wider'>
+              <MessageSquare className="w-4 h-4" /> Daftar Percakapan
             </h2>
             <div className='relative'>
-              <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500' />
+              <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400' />
               <input
                 type='text'
                 placeholder='Cari ID percakapan...'
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className='w-full bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200 rounded-lg border border-gray-200 dark:border-gray-700 pl-10 pr-4 py-2 text-sm'
+                className='w-full bg-white dark:bg-neutral-950 text-gray-900 dark:text-white rounded-lg border border-gray-200 dark:border-neutral-700 pl-9 pr-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all'
               />
             </div>
           </div>
-          <div className='overflow-y-auto flex-1'>
+          <div className='overflow-y-auto flex-1 p-2 space-y-1'>
             {listLoading ? (
-              <div className='flex justify-center items-center h-full text-gray-500'>
+              <div className='flex justify-center items-center h-full text-gray-400'>
                 <Loader2 className='w-8 h-8 animate-spin' />
               </div>
             ) : filteredConversations.length > 0 ? (
@@ -352,57 +367,63 @@ const ChatHistoryView = () => {
                 <button
                   key={conv._id}
                   onClick={() => handleSelectConversation(conv._id)}
-                  className={`w-full text-left p-4 border-l-4 hover:bg-gray-100 dark:hover:bg-gray-800/50 ${
+                  className={`w-full text-left p-3 rounded-lg transition-all border ${
                     selectedConversation?._id === conv._id
-                      ? 'bg-blue-600/10 dark:bg-blue-600/20 border-blue-500'
-                      : 'border-transparent'
+                      ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                      : 'border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
                   }`}
                 >
-                  <p className='font-bold text-gray-900 dark:text-white text-sm truncate'>
-                    ID: {conv._id}
-                  </p>
-                  <p className='text-sm text-gray-600 dark:text-gray-400 truncate mt-1'>
-                    Status: {conv.status}
-                  </p>
-                  <p className='text-xs text-gray-500 mt-2'>
+                  <div className="flex justify-between items-start mb-1">
+                    <p className='font-mono text-xs text-gray-500 dark:text-gray-400 truncate w-24'>
+                       {conv._id.substring(0, 8)}...
+                    </p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                      conv.status === 'ACTIVE' 
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
+                        : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                    }`}>
+                      {conv.status}
+                    </span>
+                  </div>
+                  <p className='text-xs text-gray-400 dark:text-gray-500 mb-1'>
                     {new Date(conv.createdAt).toLocaleString()}
                   </p>
                 </button>
               ))
             ) : (
-              <div className='text-center text-gray-500 p-8'>
-                <p>{error || 'Percakapan tidak ditemukan.'}</p>
+              <div className='text-center text-gray-500 dark:text-gray-400 p-8 text-sm'>
+                <p>{error || 'Tidak ada percakapan ditemukan.'}</p>
               </div>
             )}
           </div>
         </div>
 
         {/* Detail */}
-        <div className='lg:col-span-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg h-[600px] flex flex-col'>
+        <div className='lg:col-span-2 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[600px] flex flex-col overflow-hidden'>
           {detailLoading ? (
-            <div className='flex justify-center items-center h-full text-gray-500'>
+            <div className='flex justify-center items-center h-full text-gray-400'>
               <Loader2 className='w-12 h-12 animate-spin' />
             </div>
           ) : selectedConversation ? (
             <>
-              <header className='p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center'>
+              <header className='p-4 border-b border-gray-200 dark:border-neutral-800 flex justify-between items-center bg-gray-50/50 dark:bg-neutral-900/50'>
                 <div>
                   <h3 className='font-bold text-gray-900 dark:text-white'>
                     Detail Percakapan
                   </h3>
-                  <p className='text-sm text-gray-600 dark:text-gray-400'>
-                    {selectedConversation._id}
+                  <p className='text-xs font-mono text-gray-500 dark:text-gray-400 mt-0.5'>
+                    ID: {selectedConversation._id}
                   </p>
                 </div>
                 <button
-                  onClick={() => handleDeleteChat(selectedConversation._id)} // Tombol ini juga sekarang memanggil toast
-                  className='flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-2 rounded-lg'
+                  onClick={() => handleDeleteChat(selectedConversation._id)}
+                  className='flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors'
                 >
                   <Trash2 className='w-4 h-4' />
                   <span>Hapus</span>
                 </button>
               </header>
-              <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-5'>
+              <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-4 bg-white dark:bg-neutral-900'>
                 {selectedConversation.messages.map((msg, index) => (
                   <div
                     key={index}
@@ -413,38 +434,44 @@ const ChatHistoryView = () => {
                     }`}
                   >
                     <div
-                      className={`p-2 rounded-full ${
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                         msg.sender === 'user'
-                          ? 'bg-blue-600'
-                          : 'bg-gray-500 dark:bg-gray-700'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 dark:bg-neutral-700 text-gray-600 dark:text-gray-300'
                       }`}
                     >
                       {msg.sender === 'user' ? (
-                        <User className='w-4 h-4 text-white' />
+                        <User className='w-4 h-4' />
                       ) : (
-                        <Bot className='w-4 h-4 text-white' />
+                        <Bot className='w-4 h-4' />
                       )}
                     </div>
                     <div
-                      className={`px-4 py-2 rounded-lg shadow-sm ${
+                      className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
                         msg.sender === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-200'
+                          ? 'bg-blue-600 text-white rounded-tr-none'
+                          : 'bg-gray-100 dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-neutral-700'
                       }`}
                     >
-                      <p>{msg.msg}</p>
+                      <p className="whitespace-pre-wrap">{msg.msg}</p>
+                      <p className={`text-[10px] mt-1 opacity-70 ${
+                        msg.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
+                      }`}>
+                         {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      </p>
                     </div>
                   </div>
                 ))}
               </div>
             </>
           ) : (
-            <div className='flex flex-col items-center justify-center h-full text-gray-500'>
-              <MessageSquare className='w-16 h-16 mb-4' />
-              <h3 className='text-xl font-semibold'>Pilih Percakapan</h3>
-              <p>
-                Pilih salah satu percakapan dari daftar di sebelah kiri untuk
-                melihat detailnya.
+            <div className='flex flex-col items-center justify-center h-full text-gray-400 dark:text-neutral-600'>
+              <div className="p-6 bg-gray-50 dark:bg-neutral-800/50 rounded-full mb-4">
+                <MessageSquare className='w-10 h-10' />
+              </div>
+              <h3 className='text-lg font-medium text-gray-900 dark:text-white'>Belum ada percakapan dipilih</h3>
+              <p className="text-sm mt-1">
+                Pilih salah satu dari daftar di sebelah kiri.
               </p>
             </div>
           )}
@@ -453,7 +480,6 @@ const ChatHistoryView = () => {
     </div>
   );
 };
-
 
 // --- KOMPONEN UTAMA: AdminDashboard ---
 export default function AdminDashboard() {
@@ -485,6 +511,13 @@ export default function AdminDashboard() {
         return <ChatHistoryView />;
       case 'knowledge':
         return <KnowledgeView onBack={() => setActiveView('history')} />;
+      case 'ragUpload':
+        return (
+          <RagDetailView 
+            onBack={() => setActiveView('knowledge')} 
+            onSuccess={() => setActiveView('knowledge')} 
+          />
+        );
       case 'createAdmin':
         return <CreateAdminView onBack={() => setActiveView('history')} />;
       default:
@@ -493,14 +526,17 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className='flex h-screen bg-gray-50 dark:bg-black text-gray-900 dark:text-gray-200 font-sans'>
+    // [UPDATE] Background utama disesuaikan: gray-50 (light) vs neutral-950 (dark)
+    <div className='flex h-screen bg-gray-50 dark:bg-neutral-950 text-gray-900 dark:text-gray-200 font-sans transition-colors duration-300'>
       <AdminSidebar
         activeView={activeView}
         onNavClick={setActiveView}
         onLogout={handleLogout}
         isLoggingOut={isLoggingOut}
       />
-      <main className='flex-1 overflow-y-auto h-screen'>{renderView()}</main>
+      <main className='flex-1 overflow-y-auto h-screen relative'>
+        {renderView()}
+      </main>
     </div>
   );
 }
