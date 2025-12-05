@@ -1,14 +1,17 @@
 // src/app/layout.tsx
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css"; 
-import { ThemeProvider } from "./Admin/theme-provider"; 
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google'; // Ganti dengan font Anda
+import './globals.css';
 
-const inter = Inter({ subsets: ["latin"] });
+// 1. Impor ThemeProvider dan Toaster
+import { ThemeProvider } from '@/app/Admin/theme-provider'; // Sesuaikan path jika perlu
+import { Toaster } from 'sonner';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: "Aplikasi Admin",
-  description: "Admin Panel",
+  title: 'Admin & Chatbot',
+  description: 'Aplikasi Admin dan Chatbot',
 };
 
 export default function RootLayout({
@@ -17,17 +20,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // suppressHydrationWarning wajib ada untuk mencegah error next-themes
-    <html lang="id" suppressHydrationWarning>
+    <html lang='en' suppressHydrationWarning>
       <body className={inter.className}>
-        {/* 👇 INI YANG PENTING: attribute="class" agar Tailwind jalan */}
         <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
+          attribute='class'
+          defaultTheme='system'
           enableSystem
           disableTransitionOnChange
         >
           {children}
+          
+          {/* 2. Tambahkan Toaster di sini */}
+          {/* Ini akan otomatis ganti tema (dark/light) */}
+          <Toaster richColors theme='system' />
+
         </ThemeProvider>
       </body>
     </html>

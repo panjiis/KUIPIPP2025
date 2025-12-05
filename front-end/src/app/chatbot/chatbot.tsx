@@ -3,10 +3,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReCAPTCHA from 'react-google-recaptcha';
 import { 
-  Send, Bot, Loader2, RefreshCw, User, Copy, Check, 
-
+  Send, Bot, Loader2, RefreshCw, User, Copy, Check 
 } from 'lucide-react';
-
 
 // Markdown renderer
 import ReactMarkdown from 'react-markdown';
@@ -42,21 +40,27 @@ const initialMessages: Message[] = [
 ];
 
 export default function Chatbot() {
- 
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-
-  // Hindari hydration mismatch untuk tema
-
+  // State untuk feedback Copy
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
-
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [userConsent, setUserConsent] = useState<string | null>(null);
   const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
+
+  // ------------------------------------------------------------
+  // COPY CLIPBOARD LOGIC
+  // ------------------------------------------------------------
+  const handleCopyMessage = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
 
   // ------------------------------------------------------------
   // CAPTCHA + SESSION LOGIC
@@ -64,7 +68,7 @@ export default function Chatbot() {
   const createNewChatSession = async (captchaToken: string) => {
     const consentValue = userConsent || 'false';
     try {
-      const res = await fetch('http://localhost:5000/api/create-chat', {
+      const res = await fetch('http://localhost:8080/api/create-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -119,7 +123,7 @@ export default function Chatbot() {
     try {
       setLoading(true);
 
-      const res = await fetch('http://localhost:5000/api/send-msg', {
+      const res = await fetch('http://localhost:8080/api/send-msg', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -186,7 +190,7 @@ export default function Chatbot() {
     const [copied, setCopied] = useState(false);
     const match = /language-(\w+)/.exec(className || '');
 
-    const handleCopy = () => {
+    const handleCopyCode = () => {
       navigator.clipboard.writeText(String(children).replace(/\n$/, ''));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -200,7 +204,7 @@ export default function Chatbot() {
               {match ? match[1] : 'text'}
             </span>
             <button
-              onClick={handleCopy}
+              onClick={handleCopyCode}
               className="p-1.5 hover:bg-gray-200 dark:hover:bg-neutral-700 rounded transition-colors"
               title="Copy Code"
             >
@@ -230,7 +234,6 @@ export default function Chatbot() {
   // UI RENDER
   // ------------------------------------------------------------
   return (
-    // [UPDATE] Background utama neutral-950 untuk dark mode
     <section className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-neutral-950 p-4 font-sans transition-colors duration-300">
       
       {/* ---------------- MODAL PERSETUJUAN ---------------- */}
@@ -281,9 +284,6 @@ export default function Chatbot() {
               </div>
             </div>
           </div>
-
-          {/* [BARU] Theme Toggle */}
-        
         </header>
 
         {/* CHAT AREA */}
@@ -304,57 +304,98 @@ export default function Chatbot() {
                 {msg.sender === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
               </div>
 
-              {/* MESSAGE BUBBLE */}
-              <div
-                className={`max-w-[85%] sm:max-w-[75%] px-5 py-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                  msg.sender === 'user'
-                    ? 'bg-blue-600 text-white rounded-tr-none shadow-blue-600/10'
-                    : 'bg-white dark:bg-neutral-900 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-neutral-800 rounded-tl-none'
-                }`}
-              >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: (props: MarkdownProps) => <p className="mb-2 last:mb-0" {...props} />,
-                    a: (props) => (
-                      <a
-                        className={`underline decoration-1 underline-offset-2 ${
-                          msg.sender === 'user' ? 'text-white' : 'text-blue-600 dark:text-blue-400'
-                        }`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        {...props}
-                      />
-                    ),
-                    ul: (props) => <ul className="list-disc ml-4 mb-2 space-y-1" {...props} />,
-                    ol: (props) => <ol className="list-decimal ml-4 mb-2 space-y-1" {...props} />,
-                    li: (props) => <li className="pl-1" {...props} />,
-                    strong: (props) => <strong className="font-bold" {...props} />,
-                    h1: (props) => <h1 className="text-lg font-bold mt-4 mb-2" {...props} />,
-                    h2: (props) => <h2 className="text-base font-bold mt-3 mb-2" {...props} />,
-                    blockquote: (props) => (
-                      <blockquote
-                        className={`border-l-4 pl-4 py-1 my-2 rounded-r italic ${
-                          msg.sender === 'user' 
-                            ? 'border-white/50 bg-white/10' 
-                            : 'border-blue-500 bg-gray-50 dark:bg-neutral-800'
-                        }`}
-                        {...props}
-                      />
-                    ),
-                    table: (props) => (
-                      <div className="overflow-x-auto my-3 border border-gray-200 dark:border-neutral-700 rounded-lg">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-neutral-700" {...props} />
-                      </div>
-                    ),
-                    thead: (props) => <thead className="bg-gray-50 dark:bg-neutral-800" {...props} />,
-                    th: (props) => <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" {...props} />,
-                    td: (props) => <td className="px-3 py-2 whitespace-nowrap text-sm border-t border-gray-100 dark:border-neutral-800" {...props} />,
-                    code: CodeBlock as React.ComponentType<CodeBlockProps>,
-                  }}
+              {/* MESSAGE CONTENT & ACTIONS WRAPPER */}
+              <div className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                
+                {/* BUBBLE */}
+                <div
+                  className={`px-5 py-3.5 rounded-2xl text-sm leading-relaxed shadow-sm w-full ${
+                    msg.sender === 'user'
+                      ? 'bg-blue-600 text-white rounded-tr-none shadow-blue-600/10'
+                      : 'bg-white dark:bg-neutral-900 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-neutral-800 rounded-tl-none'
+                  }`}
                 >
-                  {msg.text}
-                </ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: (props: MarkdownProps) => <p className="mb-2 last:mb-0" {...props} />,
+                      a: (props) => (
+                        <a
+                          className={`underline decoration-1 underline-offset-2 ${
+                            msg.sender === 'user' ? 'text-white' : 'text-blue-600 dark:text-blue-400'
+                          }`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          {...props}
+                        />
+                      ),
+                      ul: (props) => <ul className="list-disc ml-4 mb-2 space-y-1" {...props} />,
+                      ol: (props) => <ol className="list-decimal ml-4 mb-2 space-y-1" {...props} />,
+                      li: (props) => <li className="pl-1" {...props} />,
+                      strong: (props) => <strong className="font-bold" {...props} />,
+                      h1: (props) => <h1 className="text-lg font-bold mt-4 mb-2" {...props} />,
+                      h2: (props) => <h2 className="text-base font-bold mt-3 mb-2" {...props} />,
+                      blockquote: (props) => (
+                        <blockquote
+                          className={`border-l-4 pl-4 py-1 my-2 rounded-r italic ${
+                            msg.sender === 'user' 
+                              ? 'border-white/50 bg-white/10' 
+                              : 'border-blue-500 bg-gray-50 dark:bg-neutral-800'
+                          }`}
+                          {...props}
+                        />
+                      ),
+                      table: (props) => (
+                        <div className="overflow-x-auto my-3 border border-gray-200 dark:border-neutral-700 rounded-lg">
+                          <table className="min-w-full divide-y divide-gray-200 dark:divide-neutral-700" {...props} />
+                        </div>
+                      ),
+                      thead: (props) => <thead className="bg-gray-50 dark:bg-neutral-800" {...props} />,
+                      th: (props) => <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" {...props} />,
+                      td: (props) => <td className="px-3 py-2 whitespace-nowrap text-sm border-t border-gray-100 dark:border-neutral-800" {...props} />,
+                      code: CodeBlock as React.ComponentType<CodeBlockProps>,
+                    }}
+                  >
+                    {msg.text}
+                  </ReactMarkdown>
+                </div>
+
+                {/* ACTION BAR (COPY & REGENERATE) - ONLY FOR BOT */}
+                {msg.sender === 'bot' && (
+                  <div className="flex items-center gap-3 mt-2 ml-1 animate-in fade-in duration-300">
+                    {/* Copy Button */}
+                    <button 
+                      onClick={() => handleCopyMessage(msg.text, i)}
+                      className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                      title="Salin Pesan"
+                    >
+                      {copiedIndex === i ? (
+                        <>
+                          <Check className="w-3 h-3 text-green-500" />
+                          <span className="text-green-500">Disalin</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Salin</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Regenerate Button (Only for last message) */}
+                    {i === messages.length - 1 && !loading && (
+                      <button 
+                        onClick={handleRetry}
+                        className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        title="Generate Ulang"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Regenerate</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
               </div>
             </div>
           ))}
@@ -372,19 +413,6 @@ export default function Chatbot() {
             </div>
           )}
 
-          {/* Retry Button */}
-          {!loading && messages.length > 0 && messages[messages.length - 1]?.sender === 'bot' && (
-            <div className="flex justify-start pl-12 -mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={handleRetry}
-                className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors bg-gray-50 dark:bg-neutral-800 px-2 py-1 rounded-md border border-gray-200 dark:border-neutral-700"
-              >
-                <RefreshCw className="w-3 h-3" />
-                Regenerate
-              </button>
-            </div>
-          )}
-
           <div ref={messagesEndRef} />
         </div>
 
@@ -396,7 +424,6 @@ export default function Chatbot() {
                 <ReCAPTCHA
                   sitekey={recaptchaSiteKey}
                   onChange={handleCaptchaChange}
-                  
                 />
               </div>
             ) : (
