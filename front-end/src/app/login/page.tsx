@@ -1,11 +1,12 @@
 'use client';
 import { useState } from 'react';
-import { LogIn, Loader2 } from 'lucide-react';
+import { LogIn, Loader2, Eye, EyeOff } from 'lucide-react'; // <--- Import Icon Baru
 
-// --- Type for successful and error responses ---
+// --- INTERFACE ---
 interface LoginSuccessResponse {
   message: string;
-  token?: string; // optional if your backend sends token
+  token?: string;
+  role: string;
 }
 
 interface LoginErrorResponse {
@@ -17,6 +18,10 @@ type LoginResponse = LoginSuccessResponse | LoginErrorResponse;
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  
+  // STATE BARU: Untuk toggle visibilitas password
+  const [showPassword, setShowPassword] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -29,7 +34,7 @@ export default function LoginPage() {
       const res = await fetch('http://localhost:5000/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include', // include cookies
+        credentials: 'include',
         body: JSON.stringify({ username, password }),
       });
 
@@ -37,6 +42,12 @@ export default function LoginPage() {
 
       if (!res.ok) {
         throw new Error((data as LoginErrorResponse).message || 'Gagal untuk login.');
+      }
+
+      // Simpan role ke localStorage agar menu Admin muncul
+      const successData = data as LoginSuccessResponse;
+      if (successData.role) {
+        localStorage.setItem('role', successData.role);
       }
 
       window.location.href = '/Admin';
@@ -71,7 +82,7 @@ export default function LoginPage() {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-2 block w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500"
+              className="mt-2 block w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 placeholder-neutral-500"
               placeholder="Masukkan username Anda"
             />
           </div>
@@ -80,20 +91,40 @@ export default function LoginPage() {
             <label htmlFor="password" className="text-sm font-medium text-gray-300">
               Password
             </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-2 block w-full px-4 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500"
-              placeholder="••••••••"
-            />
+            
+            {/* WRAPPER RELATIVE UNTUK POSISI ICON */}
+            <div className="relative mt-2">
+              <input
+                id="password"
+                name="password"
+                // UBAH TYPE BERDASARKAN STATE
+                type={showPassword ? "text" : "password"}
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                // Tambahkan pr-10 (padding right) agar teks tidak tertutup icon
+                className="block w-full pl-4 pr-12 py-3 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 placeholder-neutral-500"
+                placeholder="••••••••"
+              />
+              
+              {/* TOMBOL TOGGLE PASSWORD */}
+              <button
+                type="button" // PENTING: type button agar tidak submit form
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-white transition-colors"
+                title={showPassword ? "Sembunyikan password" : "Lihat password"}
+              >
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
+              </button>
+            </div>
           </div>
 
           {error && (
-            <div className="text-center text-red-400 text-sm">
+            <div className="text-center text-red-400 text-sm bg-red-900/20 p-2 rounded-lg border border-red-900/50">
               <p>{error}</p>
             </div>
           )}
@@ -102,7 +133,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-neutral-600 transition-colors"
+              className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-neutral-600 disabled:cursor-not-allowed transition-all"
             >
               {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
               <span>{loading ? 'Memproses...' : 'Login'}</span>

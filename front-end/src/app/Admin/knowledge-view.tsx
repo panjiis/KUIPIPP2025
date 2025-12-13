@@ -17,7 +17,12 @@ import {
   Loader2,
   BookOpen,
   X,
+  // --- IMPORT BARU ---
+  Cloud,
+  CloudOff,
+  AlertCircle
 } from 'lucide-react';
+import CreatableSelect from 'react-select/creatable';
 
 import { toast } from 'sonner';
 
@@ -28,6 +33,7 @@ interface KnowledgeItem {
   content: string;
   category: string;
   status: 'ACTIVE' | 'INACTIVE';
+  is_sync: boolean; // <--- FIELD BARU
   updatedAt: string;
 }
 
@@ -55,7 +61,7 @@ interface KnowledgeDetailPanelProps {
   item: KnowledgeItem | null;
   mode: 'view' | 'edit' | 'add';
   onSave: (
-    formData: Omit<KnowledgeItem, '_id' | 'updatedAt'>,
+    formData: Omit<KnowledgeItem, '_id' | 'updatedAt' | 'is_sync'>,
     isNew: boolean
   ) => void;
   onCancel: () => void;
@@ -348,6 +354,10 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
       const res = await fetch('http://localhost:8080/do-rag');
       if (!res.ok) throw new Error('Proses RAG gagal di server AI.');
       const data: RagUpdateResponse = await res.json();
+      
+      // Refresh list agar status sync berubah jadi true
+      await fetchKnowledgeItems(true);
+
       toast.success('Update RAG Selesai', {
         description: data.Message || 'Proses berhasil.',
       });
@@ -365,7 +375,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
 
   // ===== SAVE ITEM (Updated) =====
   const handleSaveItem = async (
-    formData: Omit<KnowledgeItem, '_id' | 'updatedAt'>,
+    formData: Omit<KnowledgeItem, '_id' | 'updatedAt' | 'is_sync'>,
     isNew: boolean
   ) => {
     setIsLoading((prev) => ({ ...prev, save: true }));
@@ -527,7 +537,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
               Update RAG
             </h2>
             <p className='text-sm text-gray-600 dark:text-gray-400 mt-1'>
-              Perbarui model dengan data terbaru.
+              Perbarui model dengan data terbaru (Wajib jika ada perubahan).
             </p>
           </div>
           <button
@@ -607,21 +617,37 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
                   }`}
                 >
                   <div className='flex justify-between items-center mb-1'>
-                    <p className='font-bold text-gray-900 dark:text-white text-sm truncate'>
+                    <p className='font-bold text-gray-900 dark:text-white text-sm truncate w-[70%]'>
                       {item.topic}
                     </p>
-                    {item.status === 'ACTIVE' ? (
-                      <CheckCircle className='w-4 h-4 text-green-500' />
-                    ) : (
-                      <XCircle className='w-4 h-4 text-red-500' />
-                    )}
+                    {/* --- STATUS ICONS DI LIST --- */}
+                    <div className="flex items-center gap-1.5">
+                      {/* Sync Icon */}
+                      {item.is_sync ? (
+                        <Cloud className='w-3.5 h-3.5 text-blue-500' />
+                      ) : (
+                        <CloudOff className='w-3.5 h-3.5 text-orange-500' />
+                      )}
+                      
+                      {/* Active Icon */}
+                      {item.status === 'ACTIVE' ? (
+                        <CheckCircle className='w-4 h-4 text-green-500' />
+                      ) : (
+                        <XCircle className='w-4 h-4 text-red-500' />
+                      )}
+                    </div>
                   </div>
                   <p className='text-xs text-gray-500 dark:text-gray-400 truncate'>
                     {item.content}
                   </p>
-                  <p className='text-[10px] text-gray-400 dark:text-gray-500 mt-1'>
-                    Update: {new Date(item.updatedAt).toLocaleString()}
-                  </p>
+                  <div className='flex items-center justify-between mt-1'>
+                     <p className='text-[10px] text-gray-400 dark:text-gray-500'>
+                      {item.category}
+                    </p>
+                    <p className='text-[10px] text-gray-400 dark:text-gray-500'>
+                      {new Date(item.updatedAt).toLocaleDateString()}
+                    </p>
+                  </div>
                 </button>
               ))
             ) : (
@@ -672,6 +698,31 @@ function KnowledgeDetailPanel({
   const isEditing = mode === 'edit';
   const [formData, setFormData] = useState(initialFormData);
   const [showGuide, setShowGuide] = useState(false);
+  
+  // STATE BARU: Untuk menyimpan opsi kategori
+  const [categoryOptions, setCategoryOptions] = useState<{label: string, value: string}[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+
+  // FETCH KATEGORI SAAT MODE EDIT/ADD
+  useEffect(() => {
+    if (isAdding || isEditing) {
+      setIsLoadingCategories(true);
+      fetch('http://localhost:5000/api/knowledge/categories')
+        .then(res => res.json())
+        .then(json => {
+          if (!json.error && json.data) {
+            // Transform data MongoDB ke format React-Select { label, value }
+            const options = json.data.map((cat: any) => ({
+              label: cat.name,
+              value: cat.name
+            }));
+            setCategoryOptions(options);
+          }
+        })
+        .catch(err => console.error("Gagal load kategori:", err))
+        .finally(() => setIsLoadingCategories(false));
+    }
+  }, [isAdding, isEditing]);
 
   useEffect(() => {
     if (item && !isAdding) {
@@ -693,11 +744,17 @@ function KnowledgeDetailPanel({
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // HANDLER KHUSUS UNTUK CATEGORY SELECT
+  const handleCategoryChange = (newValue: any) => {
+    setFormData(prev => ({ ...prev, category: newValue ? newValue.value : '' }));
+  };
+
   const handleSaveClick = () => {
     if (!formData.topic || !formData.content || !formData.category) {
       toast.warning('Judul, Konten, dan Kategori tidak boleh kosong.');
       return;
     }
+    // is_sync tidak dikirim saat save, dihandle backend
     onSave(formData, isAdding);
   };
 
@@ -712,11 +769,13 @@ function KnowledgeDetailPanel({
     );
   }
 
+  // 5. Render Form Utama
   return (
     <>
       {showGuide && <MarkdownGuideModal onClose={() => setShowGuide(false)} />}
 
       <div className='flex flex-col h-full'>
+        {/* --- HEADER PANEL --- */}
         <header className='p-4 border-b border-gray-200 dark:border-neutral-800 flex justify-between items-center bg-gray-50/50 dark:bg-neutral-900/50'>
           <div>
             <h3 className='font-bold text-gray-900 dark:text-white'>
@@ -727,7 +786,9 @@ function KnowledgeDetailPanel({
                 : item?.topic}
             </h3>
             {item && !isAdding && (
-              <p className='text-xs text-gray-500 font-mono'>ID: {item._id}</p>
+              <div className='flex items-center gap-2 mt-1'>
+                <p className='text-xs text-gray-500 font-mono'>ID: {item._id}</p>
+              </div>
             )}
           </div>
           <div className='flex flex-wrap gap-2'>
@@ -802,24 +863,50 @@ function KnowledgeDetailPanel({
             )}
           </div>
         </header>
+
+        {/* --- BODY PANEL --- */}
         <div className='flex-1 overflow-y-auto p-6 bg-white dark:bg-neutral-900 space-y-4'>
+          
+          {/* A. BADGES INFO (Status & Sync) */}
           {!isAdding && item && (
-            <div
-              className={`mb-2 p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
-                item.status === 'ACTIVE'
-                  ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 border border-green-200 dark:border-green-800'
-                  : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800'
-              }`}
-            >
-              {item.status === 'ACTIVE' ? (
-                <CheckCircle className='w-4 h-4' />
-              ) : (
-                <XCircle className='w-4 h-4' />
-              )}
-              Status: {item.status === 'ACTIVE' ? 'Aktif' : 'Tidak Aktif'}
+            <div className="flex flex-wrap gap-3 mb-4">
+              {/* Status Badge */}
+              <div
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                  item.status === 'ACTIVE'
+                    ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 border border-green-200 dark:border-green-800'
+                    : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 border border-red-200 dark:border-red-800'
+                }`}
+              >
+                {item.status === 'ACTIVE' ? (
+                  <CheckCircle className='w-4 h-4' />
+                ) : (
+                  <XCircle className='w-4 h-4' />
+                )}
+                <span>Status: {item.status === 'ACTIVE' ? 'Aktif' : 'Tidak Aktif'}</span>
+              </div>
+
+              {/* Sync Badge */}
+              <div
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                  item.is_sync
+                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                    : 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 border border-orange-200 dark:border-orange-800'
+                }`}
+              >
+                {item.is_sync ? (
+                  <Cloud className='w-4 h-4' />
+                ) : (
+                  <AlertCircle className='w-4 h-4' />
+                )}
+                <span>
+                  Sync RAG: {item.is_sync ? 'Sudah (Synced)' : 'Belum (Tekan Update RAG)'}
+                </span>
+              </div>
             </div>
           )}
           
+          {/* B. FORM INPUTS */}
             <InputField
               label='Judul/Topik'
               name='topic'
@@ -828,15 +915,52 @@ function KnowledgeDetailPanel({
               isEditing={isAdding || isEditing}
               placeholder='Contoh: Beasiswa DARMASISWA'
             />
-            <InputField
-              label='Kategori'
-              name='category'
-              value={formData.category}
-              onChange={handleChange}
-              isEditing={isAdding || isEditing}
-              placeholder='Contoh: Akademik / Beasiswa'
-            />
 
+            {/* C. KATEGORI (CREATABLE SELECT) */}
+            <div className='mb-4'>
+              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
+                Kategori
+              </label>
+              {(isAdding || isEditing) ? (
+                <CreatableSelect
+                  isClearable
+                  isDisabled={isLoadingCategories}
+                  isLoading={isLoadingCategories}
+                  onChange={handleCategoryChange}
+                  onCreateOption={(inputValue) => {
+                    handleCategoryChange({ label: inputValue, value: inputValue });
+                  }}
+                  options={categoryOptions}
+                  value={formData.category ? { label: formData.category, value: formData.category } : null}
+                  placeholder="Pilih atau Ketik Kategori Baru..."
+                  
+                  // --- PERUBAHAN DI SINI: MENGGUNAKAN classNames + Tailwind ---
+                  classNames={{
+                    control: (state) =>
+                      `!bg-white dark:!bg-neutral-950 !border-gray-200 dark:!border-neutral-700 !rounded-lg !text-sm !shadow-none !p-1.5 ${
+                        state.isFocused ? '!ring-2 !ring-blue-500 !border-transparent' : ''
+                      }`,
+                    menu: () => 
+                      '!bg-white dark:!bg-neutral-900 !border !border-gray-200 dark:!border-neutral-700 !rounded-lg !mt-1',
+                    option: (state) =>
+                      `!cursor-pointer !text-sm ${
+                        state.isFocused
+                          ? '!bg-blue-50 dark:!bg-blue-900/30 !text-blue-700 dark:!text-blue-200'
+                          : '!bg-white dark:!bg-neutral-900 !text-gray-900 dark:!text-white'
+                      }`,
+                    singleValue: () => '!text-gray-900 dark:!text-white',
+                    input: () => '!text-gray-900 dark:!text-white',
+                    placeholder: () => '!text-gray-400 dark:!text-neutral-600',
+                  }}
+                />
+              ) : (
+                <div className='bg-gray-50 dark:bg-neutral-800/50 p-4 rounded-lg text-sm whitespace-pre-wrap leading-relaxed border border-gray-200 dark:border-neutral-800 text-gray-800 dark:text-gray-200'>
+                  {formData.category}
+                </div>
+              )}
+            </div>
+
+            {/* D. KONTEN AREA */}
             <div className='relative'>
               <InputField
                 label='Konten Pengetahuan'
@@ -855,9 +979,10 @@ function KnowledgeDetailPanel({
               )}
             </div>
           
+          {/* E. FOOTER INFO */}
           {item && !isAdding && (
-            <div className='mt-4 text-xs text-gray-400 dark:text-gray-500'>
-              Terakhir Diperbarui: {new Date(item.updatedAt).toLocaleString()}
+            <div className='mt-4 text-xs text-gray-400 dark:text-gray-500 flex justify-between'>
+              <span>Terakhir Diperbarui: {new Date(item.updatedAt).toLocaleString()}</span>
             </div>
           )}
         </div>

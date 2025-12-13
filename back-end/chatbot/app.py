@@ -89,8 +89,12 @@ async def upload_knowledge(
         if not mongo_uri:
              raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
 
+        mongo_uri = os.getenv("MONGO_URI")
+        if not mongo_uri:
+             raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
+
         client = MongoClient(mongo_uri)
-        db = client["skripsi"]
+        db = client["kui"]
         collection = db["knowledgebase"]
         
         new_doc = {
@@ -98,6 +102,7 @@ async def upload_knowledge(
             "category": category,
             "content": content_text,
             "status": "ACTIVE",
+            "is_sync": False, # <--- TAMBAHAN: Default False saat baru upload
             "updatedAt": datetime.now().isoformat()
         }
         

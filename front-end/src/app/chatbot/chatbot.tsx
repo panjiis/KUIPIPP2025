@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReCAPTCHA from 'react-google-recaptcha';
 import { 
-  Send, Bot, Loader2, RefreshCw, User, Copy, Check 
+  Send, Bot, Loader2, RefreshCw, User, Copy, Check, BookOpen, X 
 } from 'lucide-react';
 
 // Markdown renderer
@@ -29,6 +29,11 @@ interface MarkdownProps {
   className?: string;
 }
 
+interface CategoryStructure {
+  _id: string; // Nama Kategori
+  topics: string[]; // List Topik
+}
+
 // ------------------------------------------------------------
 // INITIAL DATA
 // ------------------------------------------------------------
@@ -47,6 +52,9 @@ export default function Chatbot() {
 
   // State untuk feedback Copy
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // State untuk Suggestion Chips (Fitur Baru)
+  const [showTopicSuggestion, setShowTopicSuggestion] = useState(true);
 
   const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -68,7 +76,7 @@ export default function Chatbot() {
   const createNewChatSession = async (captchaToken: string) => {
     const consentValue = userConsent || 'false';
     try {
-      const res = await fetch('http://localhost:8080/api/create-chat', {
+      const res = await fetch('http://localhost:5000/api/create-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -117,13 +125,62 @@ export default function Chatbot() {
   };
 
   // ------------------------------------------------------------
+  // FETCH TOPIC STRUCTURE (FITUR BARU)
+  // ------------------------------------------------------------
+  const handleRequestTopics = async () => {
+    if (!isCaptchaVerified) return;
+    
+    // 1. Sembunyikan sugesti
+    setShowTopicSuggestion(false);
+
+    // 2. Tambahkan pesan user manual
+    const userMsg = "Tampilkan list topik";
+    setMessages((prev) => [...prev, { sender: 'user', text: userMsg }]);
+    setLoading(true);
+
+    try {
+      // 3. Fetch data struktur dari backend
+      const res = await fetch('http://localhost:5000/api/knowledge/structure');
+      
+      if (!res.ok) throw new Error("Gagal mengambil data topik.");
+
+      const json = await res.json();
+      const structure: CategoryStructure[] = json.data;
+
+      // 4. Format data menjadi Markdown yang rapi
+      let botResponse = "Berikut adalah daftar topik yang tersedia dalam basis pengetahuan kami:\n\n";
+
+      if (structure.length === 0) {
+        botResponse = "Maaf, belum ada topik yang tersedia saat ini.";
+      } else {
+        structure.forEach((cat) => {
+          botResponse += `### 📂 ${cat._id}\n`; // Header Kategori
+          cat.topics.forEach((topic) => {
+            botResponse += `- ${topic}\n`; // List Item
+          });
+          botResponse += `\n`; // Spasi antar kategori
+        });
+        botResponse += "\n*Silakan ketik salah satu topik di atas untuk informasi lebih detail.*";
+      }
+
+      // 5. Tampilkan balasan bot
+      setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
+
+    } catch (err) {
+      setMessages((prev) => [...prev, { sender: 'bot', text: "⚠️ Maaf, gagal memuat daftar topik. Silakan coba lagi nanti." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ------------------------------------------------------------
   // SEND MESSAGE LOGIC
   // ------------------------------------------------------------
   const sendMessageToServer = async (userMsg: string, canSaveHistory: boolean) => {
     try {
       setLoading(true);
 
-      const res = await fetch('http://localhost:8080/api/send-msg', {
+      const res = await fetch('http://localhost:5000/api/send-msg', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -150,6 +207,8 @@ export default function Chatbot() {
   const handleSend = async () => {
     if (!input.trim() || showConsentModal || !isCaptchaVerified) return;
 
+    setShowTopicSuggestion(false);
+
     const userMsg = input;
     setInput('');
     setMessages((prev) => [...prev, { sender: 'user', text: userMsg }]);
@@ -165,7 +224,6 @@ export default function Chatbot() {
     const lastUser = [...messages].reverse().find((m) => m.sender === 'user');
     if (!lastUser) return;
 
-    // Hapus pesan bot terakhir jika ada
     setMessages((prev) => {
       const arr = [...prev];
       if (arr.length > 0 && arr[arr.length - 1].sender === 'bot') {
@@ -335,6 +393,7 @@ export default function Chatbot() {
                       strong: (props) => <strong className="font-bold" {...props} />,
                       h1: (props) => <h1 className="text-lg font-bold mt-4 mb-2" {...props} />,
                       h2: (props) => <h2 className="text-base font-bold mt-3 mb-2" {...props} />,
+                      h3: (props) => <h3 className="text-sm font-bold mt-3 mb-1 text-blue-600 dark:text-blue-400" {...props} />,
                       blockquote: (props) => (
                         <blockquote
                           className={`border-l-4 pl-4 py-1 my-2 rounded-r italic ${
@@ -345,14 +404,6 @@ export default function Chatbot() {
                           {...props}
                         />
                       ),
-                      table: (props) => (
-                        <div className="overflow-x-auto my-3 border border-gray-200 dark:border-neutral-700 rounded-lg">
-                          <table className="min-w-full divide-y divide-gray-200 dark:divide-neutral-700" {...props} />
-                        </div>
-                      ),
-                      thead: (props) => <thead className="bg-gray-50 dark:bg-neutral-800" {...props} />,
-                      th: (props) => <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" {...props} />,
-                      td: (props) => <td className="px-3 py-2 whitespace-nowrap text-sm border-t border-gray-100 dark:border-neutral-800" {...props} />,
                       code: CodeBlock as React.ComponentType<CodeBlockProps>,
                     }}
                   >
@@ -363,7 +414,6 @@ export default function Chatbot() {
                 {/* ACTION BAR (COPY & REGENERATE) - ONLY FOR BOT */}
                 {msg.sender === 'bot' && (
                   <div className="flex items-center gap-3 mt-2 ml-1 animate-in fade-in duration-300">
-                    {/* Copy Button */}
                     <button 
                       onClick={() => handleCopyMessage(msg.text, i)}
                       className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
@@ -382,7 +432,6 @@ export default function Chatbot() {
                       )}
                     </button>
 
-                    {/* Regenerate Button (Only for last message) */}
                     {i === messages.length - 1 && !loading && (
                       <button 
                         onClick={handleRetry}
@@ -436,6 +485,38 @@ export default function Chatbot() {
 
         {/* INPUT AREA */}
         <div className="p-4 sm:p-5 bg-white dark:bg-neutral-900 border-t border-gray-200 dark:border-neutral-800">
+          
+          {/* --- TOPIC SUGGESTION (BARU) --- */}
+          {showTopicSuggestion && isCaptchaVerified && !loading && (
+            <div className="flex items-center justify-between w-full mb-4 animate-in slide-in-from-bottom-2 fade-in">
+              
+              {/* BAGIAN KIRI: Teks Penawaran */}
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs sm:text-sm rounded-lg border border-blue-100 dark:border-blue-900/50">
+                <BookOpen className="w-4 h-4" />
+                <span>Apakah kamu ingin melihat topik yang tersedia?</span>
+              </div>
+              
+              {/* BAGIAN KANAN: Tombol Aksi */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleRequestTopics}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-medium rounded-full shadow-md shadow-blue-600/20 transition-all active:scale-95"
+                >
+                  Ya, Tampilkan
+                </button>
+                
+                <button
+                  onClick={() => setShowTopicSuggestion(false)}
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Tutup saran"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+            </div>
+          )}
+          
           <div className="relative flex items-center max-w-4xl mx-auto">
             <input
               type="text"

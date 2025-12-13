@@ -1,14 +1,22 @@
 // middleware/authAdmin.js
 
 const isAdmin = (req, res, next) => {
-  // Cek apakah session ada DAN session tersebut menyimpan adminId
   if (req.session && req.session.adminId) {
-    // Jika ya, izinkan request lanjut ke controller (fungsi 'next()')
     next();
   } else {
-    // Jika tidak, tolak request dengan status 401 (Unauthorized)
-    res.status(401).json({ error: true, message: 'Akses ditolak. Silakan login terlebih dahulu.' });
+    res.status(401).json({ error: true, message: 'Akses ditolak. Silakan login.' });
   }
 };
 
-module.exports = { isAdmin };
+// --- TAMBAHAN BARU ---
+const isSuperAdmin = (req, res, next) => {
+  // Cek apakah user login DAN role-nya adalah SUPER_ADMIN
+  if (req.session && req.session.adminId && req.session.role === 'SUPER_ADMIN') {
+    next();
+  } else {
+    // Jika bukan Super Admin, tolak dengan 403 (Forbidden)
+    res.status(403).json({ error: true, message: 'Akses ditolak. Butuh hak akses Super Admin.' });
+  }
+};
+
+module.exports = { isAdmin, isSuperAdmin };

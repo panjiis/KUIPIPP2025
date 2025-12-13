@@ -1,18 +1,17 @@
 const mongoose = require('mongoose');
 
 const adminSchema = new mongoose.Schema({
-  username: { type: String, required: true },
+  username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-}, { timestamps: true });
+  role: { 
+    type: String, 
+    enum: ['ADMIN', 'SUPER_ADMIN'], 
+    default: 'ADMIN' 
+  }
+}, { 
+  timestamps: true,
+  collection: 'admin' 
+});
 
-// Middleware sebelum save
-// adminSchema.pre('save', async function (next) {
-//   if (!this.isModified('password')) return next();
-//   const salt = await bcrypt.genSalt(10);
-//   this.password = await bcrypt.hash(this.password, salt);
-//   next();
-// });
-
-const Admin = mongoose.model('Admin', adminSchema, 'admin');
-
+const Admin = mongoose.model('Admin', adminSchema);
 module.exports = { Admin };

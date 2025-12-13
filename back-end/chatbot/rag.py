@@ -26,7 +26,7 @@ LLM_MODEL = "gemini-flash-latest"
 
 # MongoDB Config
 MONGO_URI = os.getenv("MONGO_URI") 
-MONGO_DB_NAME = "skripsi" 
+MONGO_DB_NAME = "kui" 
 MONGO_COLLECTION_NAME = "knowledgebase"
 
 # --- Inisialisasi Model ---
@@ -216,35 +216,80 @@ def force_cleanup_chroma():
     gc.collect()
 
 def load_from_mongo():
-    # ... (Kode sama dengan sebelumnya, pastikan logic fetch dari Mongo benar)
     if not MONGO_URI: return []
     client = MongoClient(MONGO_URI)
     db = client[MONGO_DB_NAME]
     collection = db[MONGO_COLLECTION_NAME]
-    cursor = collection.find({"status": "ACTIVE"})
+    
+    print("⏳ Mengambil data dari MongoDB...")
+
+    # OPTIMASI 1: Hapus "Reset All" yang berat.
+    # Cukup pastikan dokumen INACTIVE status sync-nya False.
+    # Kita hanya update yang statusnya 'INACTIVE' tapi is_sync-nya masih 'True' (Data kotor).
+    collection.update_many(
+        {"status": "INACTIVE", "is_sync": True}, 
+        {"$set": {"is_sync": False}}
+    )
+    
+    # 2. Ambil hanya yang ACTIVE
+    # Projection: Ambil field yang perlu saja untuk menghemat bandwidth
+    cursor = collection.find(
+        {"status": "ACTIVE"},
+        {"topic": 1, "category": 1, "content": 1} 
+    )
     
     docs = []
+    active_ids = [] 
+
     for doc in cursor:
+        # Format konten
         content = f"Topik: {doc.get('topic')}\nKategori: {doc.get('category')}\nIsi: {doc.get('content')}"
         meta = {"topic": doc.get('topic'), "category": doc.get('category')}
         docs.append(Document(page_content=content, metadata=meta))
+        
+        active_ids.append(doc['_id'])
+    
+    # OPTIMASI 2: Update Sync Status hanya jika belum True
+    # Daripada update semua 1000 data, kita cek dulu atau biarkan bulk update menangani active_ids
+    # Karena kita melakukan re-indexing total (shutil.rmtree), maka semua Active dianggap baru disync.
+    if active_ids:
+        # Kita update yang Active menjadi True.
+        # MongoDB cukup pintar, jika datanya sudah True, dia tidak akan rewrite (No-Op).
+        collection.update_many(
+            {"_id": {"$in": active_ids}, "is_sync": False}, # Hanya update yang belum sync
+            {"$set": {"is_sync": True}}
+        )
+        print(f"✅ {len(docs)} dokumen dimuat untuk indexing.")
+
     client.close()
     return docs
 
 def mainrag():
+    # PERINGATAN: Ini adalah "Full Rebuild Strategy".
+    # Jika data sangat banyak (>500 dokumen), embed ulang ke Google akan tetap memakan waktu.
+    # Untuk mempercepat drastis, kita harus beralih ke "Incremental Strategy" (lebih kompleks).
+    # Untuk saat ini, optimasi Mongo di atas sudah mengurangi beban Database.
+    
     if os.path.exists(PERSIST_DIR):
-        shutil.rmtree(PERSIST_DIR, ignore_errors=True)
+        try:
+            shutil.rmtree(PERSIST_DIR, ignore_errors=True)
+            print("🧹 Cache lama dibersihkan.")
+        except Exception as e:
+            print(f"⚠️ Gagal menghapus cache lama: {e}")
     
     docs = load_from_mongo()
     if not docs:
-        print("MongoDB kosong.")
+        print("MongoDB kosong atau tidak ada data ACTIVE.")
         return
 
+    print(f"🚀 Memulai Embedding {len(docs)} dokumen ke Google AI...")
+    
+    # Batch processing bisa membantu stabilitas, tapi Chroma.from_documents sudah menanganinya.
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = text_splitter.split_documents(docs)
     
     Chroma.from_documents(documents=splits, embedding=embeddings, persist_directory=PERSIST_DIR)
-    print("✅ Indexing selesai.")
+    print("✅ Indexing selesai!")
 
 # Reset memory dihapus karena sekarang stateless
 def reset_memory():

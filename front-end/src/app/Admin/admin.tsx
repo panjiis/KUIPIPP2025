@@ -13,92 +13,93 @@ import {
   DatabaseZap,
   ChevronsLeft,
   UploadCloud,
-
+  Settings, // Icon Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Import View Components
+// --- IMPORT SUB-VIEWS ---
+// Pastikan file-file ini ada di folder yang sama (Admin/)
 import KnowledgeView from './knowledge-view';
-import CreateAdminView from './create-admin-view';
+import ManageAdminView from './manage-admin-view'; // Sudah diupdate dari CreateAdminView
 import RagDetailView from './rag-detail-view';
+import SettingsView from './settings-view'; // View baru untuk ganti password sendiri
 
-// --- Interfaces ---
+// --- INTERFACES ---
 interface ChatSession {
   _id: string;
   status: string;
   createdAt: string;
 }
+
 interface Message {
   sender: 'user' | 'bot';
   msg: string;
   createdAt: string;
 }
+
 interface BackendMessage {
   sender: 'USER' | 'BOT';
   msg: string;
   createdAt: string;
 }
+
 interface SelectedConversation {
   _id: string;
   status: string;
   messages: Message[];
 }
+
 interface ChatListResponse {
   data: ChatSession[];
 }
+
 interface ChatHistoryResponse {
   data: BackendMessage[];
 }
+
 interface DeleteOldChatsResponse {
   message: string;
 }
 
-type ActiveView = 'history' | 'knowledge' | 'createAdmin' | 'ragUpload';
+// Tipe untuk Navigasi
+type ActiveView = 'history' | 'knowledge' | 'manageAdmin' | 'ragUpload' | 'settings';
 
-// --- KOMPONEN Sidebar ---
+// ============================================================================
+// KOMPONEN 1: SIDEBAR (Navigasi)
+// ============================================================================
 const AdminSidebar = ({
   activeView,
   onNavClick,
   onLogout,
   isLoggingOut,
+  userRole
 }: {
   activeView: ActiveView;
   onNavClick: (view: ActiveView) => void;
   onLogout: () => void;
   isLoggingOut: boolean;
+  userRole: string | null;
 }) => {
   const [isOpen, setIsOpen] = useState(true);
 
-
-  // Hindari hydration mismatch
-
-
-  const handleNavClick = (view: ActiveView) => {
-    onNavClick(view);
-  };
-
+  // Daftar Menu Dasar (Muncul untuk SEMUA Admin)
   const navItems = [
-    {
-      view: 'history' as ActiveView,
-      icon: MessageSquare,
-      label: 'Chat History',
-    },
-    {
-      view: 'knowledge' as ActiveView,
-      icon: DatabaseZap,
-      label: 'Knowledge Base',
-    },
-    {
-      view: 'ragUpload' as ActiveView,
-      icon: UploadCloud,
-      label: 'Upload & Auto-RAG',
-    },
-    {
-      view: 'createAdmin' as ActiveView,
-      icon: UserPlus,
-      label: 'Create Admin',
-    },
+    { view: 'history' as ActiveView, icon: MessageSquare, label: 'Chat History' },
+    { view: 'knowledge' as ActiveView, icon: DatabaseZap, label: 'Knowledge Base' },
+    { view: 'ragUpload' as ActiveView, icon: UploadCloud, label: 'Upload & Auto-RAG' },
+    { view: 'settings' as ActiveView, icon: Settings, label: 'Settings' },
   ];
+
+  // LOGIC SUPER ADMIN: Tambahkan menu 'Manage Admin'
+  if (userRole === 'SUPER_ADMIN') {
+    // Kita sisipkan sebelum Settings agar rapi, atau di mana saja sesuai selera
+    // Di sini saya taruh sebelum Settings
+    navItems.splice(3, 0, {
+      view: 'manageAdmin' as ActiveView,
+      icon: UserPlus,
+      label: 'Manage Admin',
+    });
+  }
 
   return (
     <aside
@@ -124,7 +125,7 @@ const AdminSidebar = ({
         {navItems.map((item) => (
           <button
             key={item.view}
-            onClick={() => handleNavClick(item.view)}
+            onClick={() => onNavClick(item.view)}
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
                       ${!isOpen && 'justify-center'} 
                       ${
@@ -143,12 +144,8 @@ const AdminSidebar = ({
         ))}
       </nav>
 
-      {/* [BARU] Footer Section: Theme Toggle & Logout */}
+      {/* Footer Section: Logout */}
       <div className='p-3 border-t border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-900/50'>
-        
-        {/* Theme Toggle Buttons */}
-        
-        {/* Logout Button */}
         <button
           onClick={onLogout}
           disabled={isLoggingOut}
@@ -173,7 +170,9 @@ const AdminSidebar = ({
   );
 };
 
-// --- KOMPONEN Tampilan History Chat ---
+// ============================================================================
+// KOMPONEN 2: CHAT HISTORY VIEW (Internal Component)
+// ============================================================================
 const ChatHistoryView = () => {
   const [chatList, setChatList] = useState<ChatSession[]>([]);
   const [selectedConversation, setSelectedConversation] =
@@ -183,6 +182,7 @@ const ChatHistoryView = () => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 1. Fetch List
   const fetchChatList = async () => {
     try {
       setListLoading(true);
@@ -211,6 +211,7 @@ const ChatHistoryView = () => {
     fetchChatList();
   }, []);
 
+  // 2. Select Conversation & Fetch Details
   const handleSelectConversation = async (chatId: string) => {
     if (selectedConversation?._id === chatId) return;
     try {
@@ -246,6 +247,7 @@ const ChatHistoryView = () => {
     }
   };
 
+  // 3. Delete Single Chat
   const executeDeleteChat = async (id: string) => {
     try {
       const res = await fetch(`http://localhost:5000/api/admin/chats/${id}`, {
@@ -262,26 +264,19 @@ const ChatHistoryView = () => {
       if (err instanceof Error) {
         toast.error(`Error: ${err.message}`);
       } else {
-        toast.error('Terjadi kesalahan yang tidak diketahui saat menghapus.');
+        toast.error('Gagal menghapus chat.');
       }
     }
   };
 
   const handleDeleteChat = async (id: string) => {
-    toast.warning('Konfirmasi Hapus', {
-      description: 'Apakah Anda yakin ingin menghapus percakapan ini secara permanen?',
-      action: {
-        label: 'Ya, Hapus',
-        onClick: () => executeDeleteChat(id),
-      },
-      cancel: {
-        label: 'Batal',
-        onClick: () => {},
-      },
-      duration: 5000,
-    });
+    // Menggunakan toast.promise atau custom confirm UI lebih baik, tapi simple confirm juga ok
+    if (confirm('Apakah Anda yakin ingin menghapus percakapan ini secara permanen?')) {
+        executeDeleteChat(id);
+    }
   };
 
+  // 4. Delete Old Chats
   const executeDeleteOldChats = async () => {
     try {
       const res = await fetch(
@@ -296,21 +291,15 @@ const ChatHistoryView = () => {
       if (err instanceof Error) {
         toast.error(`Error: ${err.message}`);
       } else {
-        toast.error('Terjadi kesalahan yang tidak diketahui saat menghapus.');
+        toast.error('Gagal membersihkan chat lama.');
       }
     }
   };
 
   const handleDeleteOldChats = async () => {
-    toast.warning('Konfirmasi Hapus', {
-      description: 'Hapus semua chat lama (NONACTIVE > 7 hari)?',
-      action: {
-        label: 'Ya, Hapus Semua',
-        onClick: () => executeDeleteOldChats(),
-      },
-      cancel: { label: 'Batal', onClick: () => {} },
-      duration: 8000,
-    });
+    if (confirm('Hapus semua chat lama (NONACTIVE > 7 hari)?')) {
+        executeDeleteOldChats();
+    }
   };
 
   const filteredConversations = chatList.filter((conv) =>
@@ -481,11 +470,21 @@ const ChatHistoryView = () => {
   );
 };
 
-// --- KOMPONEN UTAMA: AdminDashboard ---
+// ============================================================================
+// KOMPONEN UTAMA: ADMIN DASHBOARD
+// ============================================================================
 export default function AdminDashboard() {
   const [activeView, setActiveView] = useState<ActiveView>('history');
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
+  // 1. Ambil Role saat mount
+  useEffect(() => {
+    const storedRole = localStorage.getItem('role'); 
+    setUserRole(storedRole);
+  }, []);
+
+  // 2. Logic Logout
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
@@ -494,6 +493,10 @@ export default function AdminDashboard() {
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Proses logout gagal.');
+      
+      // Hapus data session di browser
+      localStorage.removeItem('role');
+      
       window.location.href = '/login';
     } catch (err) {
       if (err instanceof Error) {
@@ -505,6 +508,7 @@ export default function AdminDashboard() {
     }
   };
 
+  // 3. Render View Controller
   const renderView = () => {
     switch (activeView) {
       case 'history':
@@ -518,21 +522,28 @@ export default function AdminDashboard() {
             onSuccess={() => setActiveView('knowledge')} 
           />
         );
-      case 'createAdmin':
-        return <CreateAdminView onBack={() => setActiveView('history')} />;
+      case 'manageAdmin':
+        // Hanya render jika SUPER_ADMIN (double protection di UI level)
+        return userRole === 'SUPER_ADMIN' ? (
+          <ManageAdminView onBack={() => setActiveView('history')} />
+        ) : (
+          <ChatHistoryView />
+        );
+      case 'settings':
+        return <SettingsView />;
       default:
         return <ChatHistoryView />;
     }
   };
 
   return (
-    // [UPDATE] Background utama disesuaikan: gray-50 (light) vs neutral-950 (dark)
     <div className='flex h-screen bg-gray-50 dark:bg-neutral-950 text-gray-900 dark:text-gray-200 font-sans transition-colors duration-300'>
       <AdminSidebar
         activeView={activeView}
         onNavClick={setActiveView}
         onLogout={handleLogout}
         isLoggingOut={isLoggingOut}
+        userRole={userRole}
       />
       <main className='flex-1 overflow-y-auto h-screen relative'>
         {renderView()}

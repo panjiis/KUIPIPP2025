@@ -1,5 +1,6 @@
 // controller/knowledgeController.js
 const { KnowledgeBase } = require('../models/knowledgeModel');
+const { Category } = require('../models/categoryModel');
 
 // --- FUNGSI HELPER (Update Otomatis Daftar Kategori) ---
 // Fungsi ini akan dijalankan setiap kali ada Create/Update/Delete
@@ -59,7 +60,34 @@ const refreshCategorySummary = async () => {
   }
 };
 
-// GET /api/knowledge
+const updateCategoryStats = async (categoryName, changeTotal, changeActive) => {
+  if (!categoryName) return;
+
+  try {
+    const updatedCat = await Category.findOneAndUpdate(
+      { name: categoryName },
+      { 
+        $inc: { 
+          topicCount: changeTotal, 
+          activeTopicCount: changeActive 
+        } 
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    // LOGIKA HAPUS KATEGORI JIKA KOSONG
+    // Jika jumlah topik 0 (atau kurang, untuk jaga-jaga), hapus kategori
+    if (updatedCat.topicCount <= 0) {
+      await Category.findByIdAndDelete(updatedCat._id);
+      console.log(`🗑️ Kategori "${categoryName}" dihapus karena kosong.`);
+    }
+  } catch (error) {
+    console.error(`Gagal update stats kategori ${categoryName}:`, error);
+  }
+};
+
+
+// GET /api/knowledge (Tetap sama)
 exports.getAllKnowledge = async (req, res) => {
   try {
     const allData = await KnowledgeBase.find({}).sort({ updatedAt: -1 });
@@ -69,19 +97,36 @@ exports.getAllKnowledge = async (req, res) => {
   }
 };
 
+// --- API BARU: GET Categories ---
+// Dipanggil oleh Frontend untuk menampilkan menu/dropdown
+exports.getCategories = async (req, res) => {
+  try {
+    // Hanya ambil yang activeTopicCount > 0 jika untuk user chatbot
+    // Atau ambil semua jika untuk Admin panel
+    const categories = await Category.find({}).sort({ name: 1 });
+    res.status(200).json({ error: false, data: categories });
+  } catch (error) {
+    res.status(500).json({ error: true, message: error.message });
+  }
+};
+
 // POST /api/knowledge
 exports.createKnowledge = async (req, res) => {
   try {
     const { topic, content, category } = req.body;
-    if (!topic || !content || !category) {
-      return res.status(400).json({ error: true, message: 'Topik, Konten, dan Kategori diperlukan' });
-    }
-
-    const newData = new KnowledgeBase({ topic, content, category });
+    
+    // 1. Buat Knowledge Baru (Default Status: ACTIVE)
+    const newData = new KnowledgeBase({ 
+      topic, 
+      content, 
+      category,
+      status: 'ACTIVE',
+      is_sync: false 
+    });
     await newData.save();
 
-    // --- TRIGGER UPDATE DAFTAR ---
-    await refreshCategorySummary(); 
+    // 2. UPDATE CATEGORY: Tambah Total (+1) dan Active (+1)
+    await updateCategoryStats(category, 1, 1);
 
     res.status(201).json({ error: false, message: 'Data berhasil dibuat', data: newData });
   } catch (error) {
@@ -93,20 +138,31 @@ exports.createKnowledge = async (req, res) => {
 exports.updateKnowledge = async (req, res) => {
   try {
     const { id } = req.params;
-    const { topic, content, category } = req.body;
+    const { topic, content, category } = req.body; // Kategori baru (jika diedit)
     
+    // Ambil data lama sebelum diupdate untuk perbandingan
+    const oldData = await KnowledgeBase.findById(id);
+    if (!oldData) return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
+
+    const oldCategory = oldData.category;
+    const isActive = oldData.status === 'ACTIVE';
+
+    // Update Knowledge
     const updatedData = await KnowledgeBase.findByIdAndUpdate(
       id, 
-      { topic, content, category },
+      { topic, content, category, is_sync: false },
       { new: true, runValidators: true }
     );
-    
-    if (!updatedData) {
-      return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
-    }
 
-    // --- TRIGGER UPDATE DAFTAR ---
-    await refreshCategorySummary();
+    // 3. CEK PERUBAHAN KATEGORI
+    if (oldCategory !== category) {
+      // a. Kurangi dari kategori LAMA
+      // Jika statusnya active, kurangi active count juga
+      await updateCategoryStats(oldCategory, -1, isActive ? -1 : 0);
+
+      // b. Tambah ke kategori BARU
+      await updateCategoryStats(category, 1, isActive ? 1 : 0);
+    }
 
     res.status(200).json({ error: false, message: 'Data berhasil diupdate', data: updatedData });
   } catch (error) {
@@ -119,22 +175,26 @@ exports.toggleKnowledgeStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const knowledgeItem = await KnowledgeBase.findById(id);
+    if (!knowledgeItem) return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
 
-    if (!knowledgeItem) {
-      return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
-    }
+    const oldStatus = knowledgeItem.status;
+    const newStatus = oldStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
 
-    const newStatus = knowledgeItem.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-
+    // Update Status
     const updatedItem = await KnowledgeBase.findByIdAndUpdate(
       id,
-      { status: newStatus },
+      { status: newStatus, is_sync: false },
       { new: true }
     );
 
-    // --- TRIGGER UPDATE DAFTAR ---
-    // (Penting karena item INACTIVE tidak akan masuk daftar)
-    await refreshCategorySummary();
+    // 4. UPDATE CATEGORY (Hanya Active Count yang berubah)
+    if (newStatus === 'ACTIVE') {
+      // Inactive -> Active: Tambah 1 ke active count
+      await updateCategoryStats(knowledgeItem.category, 0, 1);
+    } else {
+      // Active -> Inactive: Kurangi 1 dari active count
+      await updateCategoryStats(knowledgeItem.category, 0, -1);
+    }
 
     res.status(200).json({ 
       error: false, 
@@ -147,7 +207,6 @@ exports.toggleKnowledgeStatus = async (req, res) => {
   }
 };
 
-
 // DELETE /api/knowledge/:id
 exports.deleteKnowledge = async (req, res) => {
   try {
@@ -158,10 +217,37 @@ exports.deleteKnowledge = async (req, res) => {
       return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
     }
 
-    // --- TRIGGER UPDATE DAFTAR ---
-    await refreshCategorySummary();
+    // 5. UPDATE CATEGORY: Kurangi Total (-1) dan Active (jika tadi active)
+    const wasActive = deletedData.status === 'ACTIVE';
+    await updateCategoryStats(
+      deletedData.category, 
+      -1, 
+      wasActive ? -1 : 0
+    );
 
     res.status(200).json({ error: false, message: 'Data berhasil dihapus' });
+  } catch (error) {
+    res.status(500).json({ error: true, message: error.message });
+  }
+};
+
+exports.getKnowledgeStructure = async (req, res) => {
+  try {
+    const structure = await KnowledgeBase.aggregate([
+      // 1. Hanya ambil yang ACTIVE
+      { $match: { status: 'ACTIVE', is_sync: true } },
+      // 2. Kelompokkan berdasarkan Category
+      {
+        $group: {
+          _id: "$category", // Nama Kategori
+          topics: { $push: "$topic" } // Kumpulkan topik ke dalam array
+        }
+      },
+      // 3. Sortir kategori sesuai abjad (A-Z)
+      { $sort: { _id: 1 } }
+    ]);
+
+    res.status(200).json({ error: false, data: structure });
   } catch (error) {
     res.status(500).json({ error: true, message: error.message });
   }
