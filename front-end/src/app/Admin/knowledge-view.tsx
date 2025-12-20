@@ -37,6 +37,11 @@ interface KnowledgeItem {
   updatedAt: string;
 }
 
+interface CategoryOption {
+  label: string;
+  value: string;
+}
+
 interface KnowledgeViewProps {
   onBack: () => void;
 }
@@ -306,6 +311,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   });
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
 
   // ===== FETCH DATA (Modified to handle silent updates) =====
   const fetchKnowledgeItems = useMemo(
@@ -347,31 +353,67 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     fetchKnowledgeItems();
   }, [fetchKnowledgeItems]);
 
-  // ===== HANDLE RAG UPDATE =====
-  const handleUpdateRag = async () => {
-    setIsLoading((prev) => ({ ...prev, rag: true }));
-    try {
-      const res = await fetch('http://localhost:8080/do-rag');
-      if (!res.ok) throw new Error('Proses RAG gagal di server AI.');
-      const data: RagUpdateResponse = await res.json();
-      
-      // Refresh list agar status sync berubah jadi true
-      await fetchKnowledgeItems(true);
+  const downloadKnowledgeAsTxt = (items: KnowledgeItem[]) => {
+  // 1. Format data menjadi string teks
+    const content = items.map(item => (
+      `TOPIC: ${item.topic}\n` +
+      `CATEGORY: ${item.category}\n` +
+      `STATUS: ${item.status}\n` +
+      `CONTENT:\n${item.content}\n` +
+      `--------------------------------------------------\n`
+    )).join('\n');
 
-      toast.success('Update RAG Selesai', {
-        description: data.Message || 'Proses berhasil.',
-      });
-    } catch (err) {
-      toast.error('Error saat update RAG', {
-        description:
-          err instanceof Error
-            ? err.message
-            : 'Terjadi kesalahan tidak diketahui.',
-      });
-    } finally {
-      setIsLoading((prev) => ({ ...prev, rag: false }));
-    }
-  };
+    // 2. Buat Blob (Binary Large Object) berisi teks
+    const blob = new Blob([content], { type: 'text/plain' });
+    
+    // 3. Buat URL sementara untuk unduhan
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // 4. Atur atribut unduhan
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.href = url;
+    link.download = `knowledge-backup-${timestamp}.txt`;
+    
+    // 5. Trigger klik otomatis untuk mengunduh
+    document.body.appendChild(link);
+    link.click();
+    
+    // 6. Pembersihan
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+};
+
+  // Di dalam knowledge-view.tsx
+const handleUpdateRag = async () => {
+  // --- TAMBAHKAN LOGIKA UNDUH DI SINI ---
+  if (knowledgeItems.length > 0) {
+    downloadKnowledgeAsTxt(knowledgeItems);
+  } else {
+    toast.error("Tidak ada data untuk diunduh.");
+    return;
+  }
+  // --------------------------------------
+
+  setIsLoading((prev) => ({ ...prev, rag: true }));
+  try {
+    const res = await fetch('http://localhost:8080/do-rag'); // Panggilan ke server AI
+    if (!res.ok) throw new Error('Proses RAG gagal di server AI.');
+    
+    const data: RagUpdateResponse = await res.json();
+    await fetchKnowledgeItems(true); // Refresh list
+
+    toast.success('Update RAG Selesai & Data Berhasil Diunduh', {
+      description: data.Message || 'Proses berhasil.',
+    });
+  } catch (err) {
+    toast.error('Error saat update RAG', {
+      description: err instanceof Error ? err.message : 'Terjadi kesalahan.',
+    });
+  } finally {
+    setIsLoading((prev) => ({ ...prev, rag: false }));
+  }
+};
 
   // ===== SAVE ITEM (Updated) =====
   const handleSaveItem = async (
@@ -467,8 +509,20 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   };
 
   const handleDeleteItem = (id: string) => {
+    // Ambil data item yang sedang dipilih
+    if (!selectedItem) return;
+
+    // PENGECEKAN CLIENT-SIDE
+    if (selectedItem.status !== 'INACTIVE' || !selectedItem.is_sync) {
+      toast.error('Tidak Dapat Menghapus', {
+        description: 'Item harus dinonaktifkan (INACTIVE) dan disinkronkan (Update RAG) terlebih dahulu sebelum dihapus.',
+      });
+      return;
+    }
+
+    // Jika syarat terpenuhi, tampilkan konfirmasi hapus
     toast('Konfirmasi Hapus', {
-      description: 'Yakin ingin menghapus item ini secara permanen?',
+      description: `Yakin ingin menghapus "${selectedItem.topic}" secara permanen?`,
       action: {
         label: 'Ya, Hapus',
         onClick: () => executeDeleteItem(id),
@@ -711,8 +765,8 @@ function KnowledgeDetailPanel({
         .then(res => res.json())
         .then(json => {
           if (!json.error && json.data) {
-            // Transform data MongoDB ke format React-Select { label, value }
-            const options = json.data.map((cat: any) => ({
+            // Tentukan tipe parameter cat secara eksplisit
+            const options = json.data.map((cat: { name: string }) => ({
               label: cat.name,
               value: cat.name
             }));
@@ -745,8 +799,11 @@ function KnowledgeDetailPanel({
   };
 
   // HANDLER KHUSUS UNTUK CATEGORY SELECT
-  const handleCategoryChange = (newValue: any) => {
-    setFormData(prev => ({ ...prev, category: newValue ? newValue.value : '' }));
+  const handleCategoryChange = (newValue: CategoryOption | null) => {
+    setFormData(prev => ({ 
+      ...prev, 
+      category: newValue ? newValue.value : '' 
+    }));
   };
 
   const handleSaveClick = () => {

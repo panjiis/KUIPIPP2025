@@ -166,8 +166,8 @@ export default function Chatbot() {
       // 5. Tampilkan balasan bot
       setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
 
-    } catch (err) {
-      setMessages((prev) => [...prev, { sender: 'bot', text: "⚠️ Maaf, gagal memuat daftar topik. Silakan coba lagi nanti." }]);
+    } catch {
+  setMessages((prev) => [...prev, { sender: 'bot', text: "⚠️ Maaf, gagal memuat daftar topik. Silakan coba lagi nanti." }]);
     } finally {
       setLoading(false);
     }

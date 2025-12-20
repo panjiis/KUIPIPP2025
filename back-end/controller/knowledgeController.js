@@ -208,24 +208,34 @@ exports.toggleKnowledgeStatus = async (req, res) => {
 };
 
 // DELETE /api/knowledge/:id
+// controller/knowledgeController.js
+
 exports.deleteKnowledge = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedData = await KnowledgeBase.findByIdAndDelete(id);
+
+    // 1. Cari data terlebih dahulu untuk pengecekan
+    const item = await KnowledgeBase.findById(id);
     
-    if (!deletedData) {
+    if (!item) {
       return res.status(404).json({ error: true, message: 'Data tidak ditemukan' });
     }
 
-    // 5. UPDATE CATEGORY: Kurangi Total (-1) dan Active (jika tadi active)
-    const wasActive = deletedData.status === 'ACTIVE';
-    await updateCategoryStats(
-      deletedData.category, 
-      -1, 
-      wasActive ? -1 : 0
-    );
+    // 2. LOGIKA VALIDASI: Hanya bisa hapus jika INACTIVE dan sudah IS_SYNC
+    if (item.status !== 'INACTIVE' || item.is_sync !== true) {
+      return res.status(400).json({ 
+        error: true, 
+        message: 'Gagal menghapus! Data harus berstatus INACTIVE dan sudah sinkron (Sync RAG: Sudah) sebelum dihapus permanen.' 
+      });
+    }
 
-    res.status(200).json({ error: false, message: 'Data berhasil dihapus' });
+    // 3. Jika lolos validasi, lakukan penghapusan
+    await KnowledgeBase.findByIdAndDelete(id);
+
+    // 4. Update stats kategori (karena data sudah inactive, changeActive biasanya 0)
+    await updateCategoryStats(item.category, -1, 0);
+
+    res.status(200).json({ error: false, message: 'Data berhasil dihapus permanen.' });
   } catch (error) {
     res.status(500).json({ error: true, message: error.message });
   }

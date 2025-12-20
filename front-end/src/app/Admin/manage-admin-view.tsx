@@ -2,7 +2,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { 
-  UserPlus, Loader2, Trash2, Key, Users, ShieldCheck, Shield, Lock, Eye, EyeOff 
+  CornerDownLeft, UserPlus, Loader2, Trash2, Key, Users, ShieldCheck, Shield, Lock, Eye, EyeOff 
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,6 +11,13 @@ interface AdminItem {
   username: string;
   role: 'ADMIN' | 'SUPER_ADMIN';
   createdAt: string;
+}
+
+// Define this near your AdminItem interface
+interface AdminRequest {
+  username?: string;
+  password?: string;
+  newPassword?: string;
 }
 
 interface ManageAdminViewProps {
@@ -47,7 +54,7 @@ export default function ManageAdminView({ onBack }: ManageAdminViewProps) {
       } else {
         toast.error(json.message || 'Gagal mengambil data admin');
       }
-    } catch (error) {
+    } catch {
       toast.error('Error koneksi server');
     } finally {
       setLoadingList(false);
@@ -97,12 +104,15 @@ export default function ManageAdminView({ onBack }: ManageAdminViewProps) {
     try {
       let url = 'http://localhost:5000/api/admin/create-account';
       let method = 'POST';
-      let body = { username, password };
+      
+      // Use the interface instead of 'any'
+      let body: AdminRequest = { username, password };
 
       if (mode === 'edit' && selectedAdmin) {
         url = `http://localhost:5000/api/admin/${selectedAdmin._id}/password`;
         method = 'PUT';
-        body = { newPassword: password } as any;
+        // Resolve Ln 103 'as any' warning
+        body = { newPassword: password };
       }
 
       const res = await fetch(url, {
@@ -121,8 +131,10 @@ export default function ManageAdminView({ onBack }: ManageAdminViewProps) {
       await fetchAdmins();
       handleCreateMode(); 
 
-    } catch (error: any) {
-      toast.error(error.message || 'Terjadi kesalahan');
+    } catch (error) {
+      // Resolve Ln 124 'error: any' warning
+      const message = error instanceof Error ? error.message : 'Terjadi kesalahan';
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -145,7 +157,7 @@ export default function ManageAdminView({ onBack }: ManageAdminViewProps) {
       } else {
         toast.error(json.message);
       }
-    } catch (error) {
+    } catch {
       toast.error('Gagal menghapus');
     }
   };
@@ -153,13 +165,23 @@ export default function ManageAdminView({ onBack }: ManageAdminViewProps) {
   return (
     <div className='p-4 sm:p-6 lg:p-8 h-full flex flex-col'>
       {/* Header */}
-      <header className='mb-6'>
-        <h1 className='text-3xl font-bold text-gray-900 dark:text-white tracking-tight'>
-          Manajemen Admin
-        </h1>
-        <p className='text-gray-600 dark:text-gray-400 mt-1'>
-          Kelola akses administrator sistem.
-        </p>
+      <header className='mb-6 flex justify-between items-start'>
+  <div>
+    <h1 className='text-3xl font-bold text-gray-900 dark:text-white tracking-tight'>
+      Manajemen Admin
+    </h1>
+          <p className='text-gray-600 dark:text-gray-400 mt-1'>
+            Kelola akses administrator sistem.
+          </p>
+        </div>
+        {/* ADD THIS BUTTON */}
+        <button
+          onClick={onBack}
+          className='flex items-center gap-2 py-2 px-4 border border-gray-200 dark:border-neutral-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-neutral-900 hover:bg-gray-50 dark:hover:bg-neutral-800 transition-colors'
+        >
+          <CornerDownLeft className='w-4 h-4' />
+          <span>Kembali</span>
+        </button>
       </header>
 
       <div className='grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1'>

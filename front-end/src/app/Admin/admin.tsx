@@ -171,7 +171,7 @@ const AdminSidebar = ({
 };
 
 // ============================================================================
-// KOMPONEN 2: CHAT HISTORY VIEW (Internal Component)
+// KOMPONEN 2: CHAT HISTORY VIEW (UPDATED)
 // ============================================================================
 const ChatHistoryView = () => {
   const [chatList, setChatList] = useState<ChatSession[]>([]);
@@ -213,34 +213,56 @@ const ChatHistoryView = () => {
 
   // 2. Select Conversation & Fetch Details
   const handleSelectConversation = async (chatId: string) => {
-    if (selectedConversation?._id === chatId) return;
+    // Izinkan refresh klik jika ingin memastikan data terbaru, atau return jika id sama
+    // if (selectedConversation?._id === chatId) return; 
+    
     try {
       setDetailLoading(true);
-      setSelectedConversation(null);
+      // Reset dulu biar UI loading muncul
+      setSelectedConversation(null); 
+      
       const res = await fetch(
         `http://localhost:5000/api/admin/chats/history?chatId=${chatId}`,
         { credentials: 'include' }
       );
-      if (!res.ok) throw new Error('Gagal mengambil riwayat chat.');
-      const data: ChatHistoryResponse = await res.json();
-      const transformedMessages: Message[] = data.data.map(
-        (msg: BackendMessage): Message => ({
-          msg: msg.msg,
-          createdAt: msg.createdAt,
-          sender: msg.sender === 'USER' ? 'user' : 'bot',
-        })
-      );
+      
+      // Jika error (misal chat kosong di db menyebabkan 404), kita handle agar tetap bisa dibuka
+      let transformedMessages: Message[] = [];
+      let status = 'UNKNOWN';
+
+      if (res.ok) {
+        const data: ChatHistoryResponse = await res.json();
+        // PERBAIKAN: Gunakan (data.data || []) untuk mencegah crash jika data kosong/null
+        transformedMessages = (data.data || []).map(
+          (msg: BackendMessage): Message => ({
+            msg: msg.msg,
+            createdAt: msg.createdAt,
+            sender: msg.sender === 'USER' ? 'user' : 'bot',
+          })
+        );
+      } else {
+        // Opsional: Jika fetch error tapi kita ingin tetap membuka panel agar bisa dihapus
+        console.warn("Gagal fetch detail, mungkin chat kosong.");
+      }
+
       const currentChat = chatList.find((chat) => chat._id === chatId);
+      status = currentChat?.status || 'UNKNOWN';
+
       setSelectedConversation({
         _id: chatId,
-        status: currentChat?.status || 'UNKNOWN',
+        status: status,
         messages: transformedMessages,
       });
     } catch (err) {
+      // Fallback: Tetap set selectedConversation meski kosong agar tombol hapus muncul di kanan
+      setSelectedConversation({
+        _id: chatId,
+        status: 'ERROR',
+        messages: [],
+      });
+      
       if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Terjadi kesalahan saat mengambil detail chat.');
+        toast.error(`Gagal memuat detail: ${err.message}`);
       }
     } finally {
       setDetailLoading(false);
@@ -258,7 +280,12 @@ const ChatHistoryView = () => {
       if (!res.ok) throw new Error('Gagal menghapus chat.');
 
       setChatList((prev) => prev.filter((c) => c._id !== id));
-      setSelectedConversation(null);
+      
+      // Jika yang dihapus adalah yang sedang dibuka, tutup detail view
+      if (selectedConversation?._id === id) {
+        setSelectedConversation(null);
+      }
+      
       toast.success('Percakapan berhasil dihapus.');
     } catch (err) {
       if (err instanceof Error) {
@@ -270,7 +297,6 @@ const ChatHistoryView = () => {
   };
 
   const handleDeleteChat = async (id: string) => {
-    // Menggunakan toast.promise atau custom confirm UI lebih baik, tapi simple confirm juga ok
     if (confirm('Apakah Anda yakin ingin menghapus percakapan ini secara permanen?')) {
         executeDeleteChat(id);
     }
@@ -353,31 +379,52 @@ const ChatHistoryView = () => {
               </div>
             ) : filteredConversations.length > 0 ? (
               filteredConversations.map((conv) => (
-                <button
+                // PERBAIKAN: Ubah button menjadi div relative agar bisa menaruh tombol hapus di dalamnya
+                <div
                   key={conv._id}
-                  onClick={() => handleSelectConversation(conv._id)}
-                  className={`w-full text-left p-3 rounded-lg transition-all border ${
+                  className={`group relative w-full rounded-lg transition-all border ${
                     selectedConversation?._id === conv._id
                       ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
                       : 'border-transparent hover:bg-gray-100 dark:hover:bg-neutral-800'
                   }`}
                 >
-                  <div className="flex justify-between items-start mb-1">
-                    <p className='font-mono text-xs text-gray-500 dark:text-gray-400 truncate w-24'>
-                       {conv._id.substring(0, 8)}...
+                  {/* Area Klik Utama untuk Select */}
+                  <div 
+                    onClick={() => handleSelectConversation(conv._id)}
+                    className="p-3 cursor-pointer w-full text-left pr-10" // pr-10 beri ruang untuk tombol hapus
+                  >
+                    <div className="flex justify-between items-start mb-1">
+                      <p className='font-mono text-xs text-gray-500 dark:text-gray-400 truncate w-24'>
+                        {conv._id.substring(0, 8)}...
+                      </p>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        conv.status === 'ACTIVE' 
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                      }`}>
+                        {conv.status}
+                      </span>
+                    </div>
+                    <p className='text-xs text-gray-400 dark:text-gray-500 mb-1'>
+                      {new Date(conv.createdAt).toLocaleString()}
                     </p>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                      conv.status === 'ACTIVE' 
-                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
-                        : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                    }`}>
-                      {conv.status}
-                    </span>
                   </div>
-                  <p className='text-xs text-gray-400 dark:text-gray-500 mb-1'>
-                    {new Date(conv.createdAt).toLocaleString()}
-                  </p>
-                </button>
+
+                  {/* Tombol Hapus (Muncul saat Hover atau Aktif) */}
+                  <button
+                    onClick={(e) => {
+                        e.stopPropagation(); // Mencegah trigger select
+                        handleDeleteChat(conv._id);
+                    }}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md 
+                               text-gray-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30
+                               opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity
+                               ${selectedConversation?._id === conv._id ? 'opacity-100' : ''}`}
+                    title="Hapus Percakapan"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               ))
             ) : (
               <div className='text-center text-gray-500 dark:text-gray-400 p-8 text-sm'>
@@ -404,6 +451,7 @@ const ChatHistoryView = () => {
                     ID: {selectedConversation._id}
                   </p>
                 </div>
+                {/* Tombol Hapus di Header Detail juga tetap ada */}
                 <button
                   onClick={() => handleDeleteChat(selectedConversation._id)}
                   className='flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors'
@@ -413,44 +461,54 @@ const ChatHistoryView = () => {
                 </button>
               </header>
               <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-4 bg-white dark:bg-neutral-900'>
-                {selectedConversation.messages.map((msg, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-start gap-3 max-w-[85%] ${
-                      msg.sender === 'user'
-                        ? 'self-end flex-row-reverse'
-                        : 'self-start'
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                        msg.sender === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 dark:bg-neutral-700 text-gray-600 dark:text-gray-300'
-                      }`}
-                    >
-                      {msg.sender === 'user' ? (
-                        <User className='w-4 h-4' />
-                      ) : (
-                        <Bot className='w-4 h-4' />
-                      )}
+                {selectedConversation.messages.length > 0 ? (
+                    selectedConversation.messages.map((msg, index) => (
+                      <div
+                        key={index}
+                        className={`flex items-start gap-3 max-w-[85%] ${
+                          msg.sender === 'user'
+                            ? 'self-end flex-row-reverse'
+                            : 'self-start'
+                        }`}
+                      >
+                        {/* Avatar & Message Bubble Code (Sama seperti sebelumnya) */}
+                        <div
+                          className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                            msg.sender === 'user'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 dark:bg-neutral-700 text-gray-600 dark:text-gray-300'
+                          }`}
+                        >
+                          {msg.sender === 'user' ? (
+                            <User className='w-4 h-4' />
+                          ) : (
+                            <Bot className='w-4 h-4' />
+                          )}
+                        </div>
+                        <div
+                          className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                            msg.sender === 'user'
+                              ? 'bg-blue-600 text-white rounded-tr-none'
+                              : 'bg-gray-100 dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-neutral-700'
+                          }`}
+                        >
+                          <p className="whitespace-pre-wrap">{msg.msg}</p>
+                          <p className={`text-[10px] mt-1 opacity-70 ${
+                            msg.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
+                          }`}>
+                              {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                ) : (
+                    // Tampilan jika chat dibuka tapi kosong (messages: [])
+                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                        <DatabaseZap className="w-12 h-12 mb-2 opacity-20"/>
+                        <p className="text-sm">Data percakapan kosong.</p>
+                        <p className="text-xs">Anda bisa menghapus percakapan ini melalui tombol di atas.</p>
                     </div>
-                    <div
-                      className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                        msg.sender === 'user'
-                          ? 'bg-blue-600 text-white rounded-tr-none'
-                          : 'bg-gray-100 dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-neutral-700'
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap">{msg.msg}</p>
-                      <p className={`text-[10px] mt-1 opacity-70 ${
-                        msg.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
-                      }`}>
-                         {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                )}
               </div>
             </>
           ) : (

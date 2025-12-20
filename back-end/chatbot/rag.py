@@ -1,4 +1,3 @@
-# rag.py - OPTIMIZED: Stateless Context & Robust Reranking
 import os
 import re
 import shutil
@@ -9,12 +8,14 @@ from contextlib import contextmanager
 from pymongo import MongoClient
 from langchain_core.documents import Document
 from dotenv import load_dotenv
+from datetime import datetime
 
 # --- Import Library LangChain & Google GenAI ---
 from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Pinecone
 
 # --- Konfigurasi Global ---
 load_dotenv() 
@@ -102,7 +103,12 @@ def rerank_with_gemini(query: str, docs: list, top_k: int = 3):
     
     try:
         response = llm_reranker.invoke(rerank_prompt)
-        content = response.content.strip()
+# Ganti dengan logika pengecekan tipe data
+        content = response.content
+        if isinstance(content, list):
+            # Jika list, gabungkan isinya atau ambil teksnya saja
+            content = "".join([part.get("text", "") if isinstance(part, dict) else str(part) for part in content])
+        content = content.strip()
         
         # Bersihkan format jika LLM nakal menambahkan markdown
         content = content.replace("```json", "").replace("```", "").strip()
@@ -205,7 +211,11 @@ def ask(question: str, history: list = []) -> str:
             }
             
             response = chain.invoke(inputs)
-            return response.content.strip()
+            # Ganti response.content.strip() dengan penanganan yang aman
+            final_content = response.content
+            if isinstance(final_content, list):
+                final_content = " ".join([str(p) for p in final_content])
+            return final_content.strip()
             
     except Exception as e:
         print(f"❌ Error ask logic: {e}")
@@ -216,50 +226,36 @@ def force_cleanup_chroma():
     gc.collect()
 
 def load_from_mongo():
-    if not MONGO_URI: return []
     client = MongoClient(MONGO_URI)
     db = client[MONGO_DB_NAME]
     collection = db[MONGO_COLLECTION_NAME]
-    
-    print("⏳ Mengambil data dari MongoDB...")
 
-    # OPTIMASI 1: Hapus "Reset All" yang berat.
-    # Cukup pastikan dokumen INACTIVE status sync-nya False.
-    # Kita hanya update yang statusnya 'INACTIVE' tapi is_sync-nya masih 'True' (Data kotor).
-    collection.update_many(
-        {"status": "INACTIVE", "is_sync": True}, 
-        {"$set": {"is_sync": False}}
-    )
-    
-    # 2. Ambil hanya yang ACTIVE
-    # Projection: Ambil field yang perlu saja untuk menghemat bandwidth
-    cursor = collection.find(
-        {"status": "ACTIVE"},
-        {"topic": 1, "category": 1, "content": 1} 
-    )
+    # 1. Ambil data yang ACTIVE saja untuk diproses oleh RAG
+    # (Ini tetap seperti semula agar dokumen nonaktif tidak bisa ditanya oleh user)
+    cursor = collection.find({"status": "ACTIVE"})
     
     docs = []
-    active_ids = [] 
-
+    active_ids = []
     for doc in cursor:
-        # Format konten
-        content = f"Topik: {doc.get('topic')}\nKategori: {doc.get('category')}\nIsi: {doc.get('content')}"
-        meta = {"topic": doc.get('topic'), "category": doc.get('category')}
-        docs.append(Document(page_content=content, metadata=meta))
-        
-        active_ids.append(doc['_id'])
+        active_ids.append(doc["_id"])
+        docs.append(Document(
+            page_content=f"Topic: {doc['topic']}\nCategory: {doc['category']}\nContent: {doc['content']}",
+            metadata={
+                "id": str(doc["_id"]),
+                "topic": doc["topic"],
+                "category": doc["category"]
+            }
+        ))
+
+    # 2. LOGIKA BARU: Set 'is_sync: True' untuk SEMUA data yang belum sinkron
+    # Baik itu data ACTIVE yang baru masuk, maupun INACTIVE yang baru saja dinonaktifkan.
+    result = collection.update_many(
+        {"is_sync": False}, 
+        {"$set": {"is_sync": True}}
+    )
     
-    # OPTIMASI 2: Update Sync Status hanya jika belum True
-    # Daripada update semua 1000 data, kita cek dulu atau biarkan bulk update menangani active_ids
-    # Karena kita melakukan re-indexing total (shutil.rmtree), maka semua Active dianggap baru disync.
-    if active_ids:
-        # Kita update yang Active menjadi True.
-        # MongoDB cukup pintar, jika datanya sudah True, dia tidak akan rewrite (No-Op).
-        collection.update_many(
-            {"_id": {"$in": active_ids}, "is_sync": False}, # Hanya update yang belum sync
-            {"$set": {"is_sync": True}}
-        )
-        print(f"✅ {len(docs)} dokumen dimuat untuk indexing.")
+    if result.modified_count > 0:
+        print(f"✅ Berhasil sinkronisasi {result.modified_count} data (termasuk data nonaktif).")
 
     client.close()
     return docs
