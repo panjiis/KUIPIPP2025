@@ -16,6 +16,8 @@ import {
   Settings, // Icon Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // --- IMPORT SUB-VIEWS ---
 // Pastikan file-file ini ada di folder yang sama (Admin/)
@@ -232,7 +234,6 @@ const ChatHistoryView = () => {
 
       if (res.ok) {
         const data: ChatHistoryResponse = await res.json();
-        // PERBAIKAN: Gunakan (data.data || []) untuk mencegah crash jika data kosong/null
         transformedMessages = (data.data || []).map(
           (msg: BackendMessage): Message => ({
             msg: msg.msg,
@@ -240,6 +241,7 @@ const ChatHistoryView = () => {
             sender: msg.sender === 'USER' ? 'user' : 'bot',
           })
         );
+        transformedMessages.reverse();
       } else {
         // Opsional: Jika fetch error tapi kita ingin tetap membuka panel agar bisa dihapus
         console.warn("Gagal fetch detail, mungkin chat kosong.");
@@ -492,8 +494,19 @@ const ChatHistoryView = () => {
                               : 'bg-gray-100 dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-neutral-700'
                           }`}
                         >
-                          <p className="whitespace-pre-wrap">{msg.msg}</p>
-                          <p className={`text-[10px] mt-1 opacity-70 ${
+                          {/* --- KODE LAMA (DIHAPUS) --- */}
+                          {/* <p className="whitespace-pre-wrap">{msg.msg}</p> */}
+
+                          {/* --- KODE BARU (DIGANTI) --- */}
+                          {/* Class 'prose' digunakan untuk styling otomatis list/bold/paragraph */}
+                          <div className={`prose prose-sm max-w-none ${msg.sender === 'user' ? 'prose-invert' : 'dark:prose-invert'}`}>
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {msg.msg}
+                            </ReactMarkdown>
+                          </div>
+                          
+                          {/* Timestamp */}
+                          <p className={`text-[10px] mt-2 opacity-70 ${
                             msg.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
                           }`}>
                               {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}

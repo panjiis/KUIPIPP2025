@@ -27,7 +27,7 @@ LLM_MODEL = "gemini-flash-latest"
 
 # MongoDB Config
 MONGO_URI = os.getenv("MONGO_URI") 
-MONGO_DB_NAME = "kui" 
+MONGO_DB_NAME = "skripsi" 
 MONGO_COLLECTION_NAME = "knowledgebase"
 
 # --- Inisialisasi Model ---

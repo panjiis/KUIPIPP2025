@@ -94,7 +94,7 @@ async def upload_knowledge(
              raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
 
         client = MongoClient(mongo_uri)
-        db = client["kui"]
+        db = client["skripsi"]
         collection = db["knowledgebase"]
         
         new_doc = {

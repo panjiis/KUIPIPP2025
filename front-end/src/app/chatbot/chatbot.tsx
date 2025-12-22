@@ -40,7 +40,7 @@ interface CategoryStructure {
 const initialMessages: Message[] = [
   {
     sender: 'bot',
-    text: 'Halo! Saya Asisten Akademik. Ada yang bisa saya bantu terkait informasi kampus, beasiswa, atau prosedur akademik?',
+    text: 'Hello! I\'m an Academic Assistant. How can I help you with campus information, scholarships, or academic procedures?'
   },
 ];
 
@@ -90,13 +90,13 @@ export default function Chatbot() {
         setIsCaptchaVerified(true);
       } else {
         const errorData = await res.json();
-        throw new Error(errorData.message || 'Gagal membuat sesi chat');
+        throw new Error(errorData.message || 'Failed to create chat session');
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Kesalahan tidak diketahui';
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       setMessages((prev) => [
         ...prev,
-        { sender: 'bot', text: `⚠️ Verifikasi gagal: ${msg}. Silakan refresh.` },
+        { sender: 'bot', text: `⚠️ Verification failed: ${msg}. Please refresh.` },
       ]);
       setIsCaptchaVerified(false);
     }
@@ -114,7 +114,7 @@ export default function Chatbot() {
     if (!hasAgreed) {
       setMessages((prev) => [
         ...prev,
-        { sender: 'bot', text: 'Riwayat sesi ini tidak akan disimpan untuk pelatihan AI.' },
+        { sender: 'bot', text: 'This session history will not be saved for AI training.' },
       ]);
     }
   };
@@ -142,16 +142,16 @@ export default function Chatbot() {
       // 3. Fetch data struktur dari backend
       const res = await fetch('http://localhost:5000/api/knowledge/structure');
       
-      if (!res.ok) throw new Error("Gagal mengambil data topik.");
+      if (!res.ok) throw new Error("Failed to fetch topic data.");
 
       const json = await res.json();
       const structure: CategoryStructure[] = json.data;
 
       // 4. Format data menjadi Markdown yang rapi
-      let botResponse = "Berikut adalah daftar topik yang tersedia dalam basis pengetahuan kami:\n\n";
+      let botResponse = "Below is a list of topics available in our knowledge base:\n\n";
 
       if (structure.length === 0) {
-        botResponse = "Maaf, belum ada topik yang tersedia saat ini.";
+        botResponse = "Sorry, no topics are currently available.";
       } else {
         structure.forEach((cat) => {
           botResponse += `### 📂 ${cat._id}\n`; // Header Kategori
@@ -160,14 +160,14 @@ export default function Chatbot() {
           });
           botResponse += `\n`; // Spasi antar kategori
         });
-        botResponse += "\n*Silakan ketik salah satu topik di atas untuk informasi lebih detail.*";
+        botResponse += "\n*Please type one of the topics above for more details.*";
       }
 
       // 5. Tampilkan balasan bot
       setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
 
     } catch {
-  setMessages((prev) => [...prev, { sender: 'bot', text: "⚠️ Maaf, gagal memuat daftar topik. Silakan coba lagi nanti." }]);
+  setMessages((prev) => [...prev, { sender: 'bot', text: "⚠️ Sorry, failed to load topic list. Please try again later." }]);
     } finally {
       setLoading(false);
     }
@@ -194,11 +194,11 @@ export default function Chatbot() {
       }
 
       const data = await res.json();
-      return data.reply || 'Maaf, saya tidak dapat menemukan jawaban yang relevan.';
+      return data.reply || 'Sorry, I couldn\'t find a relevant answer.';
     } catch (err) {
       return err instanceof Error
-        ? `⚠️ Gagal terhubung: ${err.message}`
-        : '⚠️ Tidak dapat terhubung ke server.';
+        ? `⚠️ Failed to connect: ${err.message}`
+        : '⚠️ Failed to connect to server.';
     } finally {
       setLoading(false);
     }
@@ -299,23 +299,23 @@ export default function Chatbot() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 p-6 rounded-2xl shadow-2xl max-w-sm w-full">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">
-              Privasi Percakapan
+              Privacy consent
             </h3>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 leading-relaxed">
-              Untuk meningkatkan kualitas jawaban AI, kami memerlukan izin untuk menyimpan riwayat percakapan ini secara anonim.
+              To improve the quality of AI answers, we need permission to store this conversation history anonymously.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => handleConsent(false)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-gray-100 hover:bg-gray-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-gray-700 dark:text-gray-300 transition-colors"
               >
-                Tanpa Simpan
+                Reject
               </button>
               <button
                 onClick={() => handleConsent(true)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-lg shadow-blue-600/20"
               >
-                Izinkan
+                Allow
               </button>
             </div>
           </div>
@@ -332,13 +332,13 @@ export default function Chatbot() {
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">Asisten Akademik</h1>
+              <h1 className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">Academic Assistant</h1>
               <div className="flex items-center gap-2">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Siap Membantu</span>
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Ready to Help</span>
               </div>
             </div>
           </div>
@@ -417,17 +417,17 @@ export default function Chatbot() {
                     <button 
                       onClick={() => handleCopyMessage(msg.text, i)}
                       className="flex items-center gap-1.5 text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                      title="Salin Pesan"
+                      title="Copy Message"
                     >
                       {copiedIndex === i ? (
                         <>
                           <Check className="w-3 h-3 text-green-500" />
-                          <span className="text-green-500">Disalin</span>
+                          <span className="text-green-500">Copied</span>
                         </>
                       ) : (
                         <>
                           <Copy className="w-3 h-3" />
-                          <span>Salin</span>
+                          <span>Copy</span>
                         </>
                       )}
                     </button>
@@ -477,7 +477,7 @@ export default function Chatbot() {
               </div>
             ) : (
               <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500 text-sm bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-lg">
-                <span>⚠️ Konfigurasi ReCAPTCHA belum terpasang.</span>
+                <span>⚠️ ReCAPTCHA configuration is not installed.</span>
               </div>
             )}
           </div>
@@ -486,23 +486,23 @@ export default function Chatbot() {
         {/* INPUT AREA */}
         <div className="p-4 sm:p-5 bg-white dark:bg-neutral-900 border-t border-gray-200 dark:border-neutral-800">
           
-          {/* --- TOPIC SUGGESTION (BARU) --- */}
+          {/* --- TOPIC SUGGESTION (PERBAIKAN RESPONSIVE) --- */}
           {showTopicSuggestion && isCaptchaVerified && !loading && (
-            <div className="flex items-center justify-between w-full mb-4 animate-in slide-in-from-bottom-2 fade-in">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between w-full mb-4 gap-3 sm:gap-0 animate-in slide-in-from-bottom-2 fade-in">
               
               {/* BAGIAN KIRI: Teks Penawaran */}
-              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs sm:text-sm rounded-lg border border-blue-100 dark:border-blue-900/50">
-                <BookOpen className="w-4 h-4" />
-                <span>Apakah kamu ingin melihat topik yang tersedia?</span>
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 text-xs sm:text-sm rounded-lg border border-blue-100 dark:border-blue-900/50 w-full sm:w-auto">
+                <BookOpen className="w-4 h-4 shrink-0" />
+                <span>Would you like to see the available topics?</span>
               </div>
               
               {/* BAGIAN KANAN: Tombol Aksi */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-end gap-2 w-full sm:w-auto">
                 <button
                   onClick={handleRequestTopics}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-medium rounded-full shadow-md shadow-blue-600/20 transition-all active:scale-95"
+                  className="flex-1 sm:flex-none px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-medium rounded-full shadow-md shadow-blue-600/20 transition-all active:scale-95 text-center"
                 >
-                  Ya, Tampilkan
+                  Yes, Show
                 </button>
                 
                 <button
@@ -540,7 +540,7 @@ export default function Chatbot() {
           </div>
 
           <p className="text-[10px] text-center mt-3 text-gray-400 dark:text-neutral-500">
-            AI dapat membuat kesalahan. Mohon verifikasi informasi penting sebelum menggunakannya.
+            AI can make mistakes. Please verify important information before using it.
           </p>
         </div>
       </div>
