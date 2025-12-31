@@ -88,13 +88,17 @@ async def upload_knowledge(
         mongo_uri = os.getenv("MONGO_URI")
         if not mongo_uri:
              raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
+         
+        MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
+        if not MONGO_DB_NAME:
+             raise HTTPException(status_code=500, detail="MONGO_DB_NAME belum disetting di env.")
 
         mongo_uri = os.getenv("MONGO_URI")
         if not mongo_uri:
              raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
 
         client = MongoClient(mongo_uri)
-        db = client["skripsi"]
+        db = client[MONGO_DB_NAME]
         collection = db["knowledgebase"]
         
         new_doc = {

@@ -354,7 +354,6 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   }, [fetchKnowledgeItems]);
 
   const downloadKnowledgeAsTxt = (items: KnowledgeItem[]) => {
-  // 1. Format data menjadi string teks
     const content = items.map(item => (
       `TOPIC: ${item.topic}\n` +
       `CATEGORY: ${item.category}\n` +
@@ -363,23 +362,18 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
       `--------------------------------------------------\n`
     )).join('\n');
 
-    // 2. Buat Blob (Binary Large Object) berisi teks
     const blob = new Blob([content], { type: 'text/plain' });
     
-    // 3. Buat URL sementara untuk unduhan
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     
-    // 4. Atur atribut unduhan
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     link.href = url;
     link.download = `knowledge-backup-${timestamp}.txt`;
     
-    // 5. Trigger klik otomatis untuk mengunduh
     document.body.appendChild(link);
     link.click();
     
-    // 6. Pembersihan
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
 };

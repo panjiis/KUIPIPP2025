@@ -6,6 +6,15 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+interface PasswordInputProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  show: boolean;
+  setShow: (value: boolean) => void;
+  placeholder: string;
+}
+
 export default function SettingsView() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -47,7 +56,8 @@ export default function SettingsView() {
       } else {
         toast.error(json.message || 'Gagal mengubah password');
       }
-    } catch (error) {
+    } catch (error) { 
+      console.error(error); 
       toast.error('Terjadi kesalahan koneksi');
     } finally {
       setLoading(false);
@@ -57,7 +67,7 @@ export default function SettingsView() {
   // Helper untuk Input Password dengan Toggle
   const PasswordInput = ({ 
     label, value, onChange, show, setShow, placeholder 
-  }: any) => (
+  }: PasswordInputProps) => (
     <div className="mb-4">
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
         {label}

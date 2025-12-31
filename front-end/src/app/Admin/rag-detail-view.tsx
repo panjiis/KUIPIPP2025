@@ -1,7 +1,7 @@
 // Admin/rag-detail-view.tsx
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, 
   FileText, 
@@ -9,21 +9,128 @@ import {
   Loader2, 
   CornerDownLeft
 } from 'lucide-react';
+import CreatableSelect from 'react-select/creatable';
 import { toast } from 'sonner';
+
+// 1. Interface Data Knowledge (Pengganti 'any')
+interface KnowledgeItem {
+  _id: string;
+  topic: string;
+  content: string;
+  category: string;
+  status: string;
+}
 
 interface RagDetailViewProps {
   onBack: () => void;
   onSuccess: () => void;
 }
 
+interface CategoryOption {
+  label: string;
+  value: string;
+}
+
 export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps) {
   const [file, setFile] = useState<File | null>(null);
   const [topic, setTopic] = useState('');
+  
+  // State Kategori
   const [category, setCategory] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
+
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Handle Drag & Drop
+  // 2. Fungsi Download Backup (Dipanggil otomatis setelah upload)
+  // 2. Fungsi Download Backup (DIPERBAIKI)
+  const downloadLatestBackup = async () => {
+    try {
+      console.log("Memulai proses download backup...");
+
+      // TAMBAHAN PENTING: credentials: 'include' agar cookie login admin terbawa
+      const res = await fetch('http://localhost:5000/api/knowledge', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // <--- INI KUNCINYA (Agar tidak ditolak server)
+      });
+
+      if (!res.ok) {
+        throw new Error(`Gagal mengambil data knowledge. Status: ${res.status}`);
+      }
+
+      const json = await res.json();
+      console.log("Data Knowledge diterima:", json); // Cek di Console browser (F12)
+
+      // Validasi struktur data yang lebih fleksibel
+      const items = json.data || json; // Jaga-jaga jika formatnya langsung array
+
+      if (items && Array.isArray(items) && items.length > 0) {
+        
+        // Format isi file TXT
+        const fileContent = items.map((item: KnowledgeItem) => (
+          `TOPIC: ${item.topic}\n` +
+          `CATEGORY: ${item.category}\n` +
+          `STATUS: ${item.status}\n` +
+          `CONTENT:\n${item.content}\n` +
+          `--------------------------------------------------\n`
+        )).join('\n');
+
+        // Proses pembuatan file di memori browser
+        const blob = new Blob([fileContent], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        
+        const timestamp = new Date().getTime();
+        link.href = url;
+        link.download = `knowledge-backup-rag-${timestamp}.txt`;
+        
+        // Teknik "Append-Click-Remove" agar support semua browser
+        document.body.appendChild(link);
+        link.click();
+        
+        // Cleanup
+        setTimeout(() => {
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        }, 100);
+        
+      } else {
+        console.warn("Data knowledge kosong atau format salah.");
+        toast.warning("Data kosong, tidak ada file yang diunduh.");
+      }
+    } catch (error) {
+      console.error("Gagal mendownload backup otomatis:", error);
+      // Jangan tampilkan toast error jika hanya masalah minor, 
+      // tapi cek console untuk detailnya.
+    }
+  };
+
+  // 3. Load Kategori saat komponen di-mount
+  useEffect(() => {
+    setIsLoadingCategories(true);
+    fetch('http://localhost:5000/api/knowledge/categories')
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.error && json.data) {
+          const options = json.data.map((cat: { name: string }) => ({
+            label: cat.name,
+            value: cat.name,
+          }));
+          setCategoryOptions(options);
+        }
+      })
+      .catch((err) => console.error('Gagal load kategori:', err))
+      .finally(() => setIsLoadingCategories(false));
+  }, []);
+
+  const handleCategoryChange = (newValue: CategoryOption | null) => {
+    setCategory(newValue ? newValue.value : '');
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -49,13 +156,11 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
       toast.error('Format file tidak didukung. Harap upload PDF atau TXT.');
       return;
     }
-    // Batas ukuran 10MB
     if (selectedFile.size > 10 * 1024 * 1024) {
       toast.error('Ukuran file terlalu besar (Maks 10MB).');
       return;
     }
     setFile(selectedFile);
-    // Otomatis isi topik dengan nama file jika kosong
     if (!topic) {
       setTopic(selectedFile.name.replace(/\.[^/.]+$/, "")); 
     }
@@ -66,6 +171,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // 4. Handle Upload Utama
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -81,6 +187,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     formData.append('category', category);
 
     try {
+      // A. Kirim ke FastAPI (Port 8080) untuk Upload & RAG Indexing
       const res = await fetch('http://localhost:8080/api/upload-knowledge', {
         method: 'POST',
         body: formData,
@@ -92,9 +199,13 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
         throw new Error(data.detail || 'Gagal mengupload file.');
       }
 
-      toast.success('Upload Berhasil & Auto-RAG Selesai!', {
-        description: `File "${file.name}" telah ditambahkan. Mengalihkan...`,
-        duration: 2000,
+      // B. TRIGGER DOWNLOAD BACKUP
+      // Dilakukan SETELAH upload sukses agar data PDF baru sudah masuk di database
+      await downloadLatestBackup();
+
+      toast.success('Upload Berhasil & Cadangan TXT Diunduh!', {
+        description: `File "${file.name}" telah di-index ke RAG.`,
+        duration: 3000,
       });
 
       // Reset form
@@ -119,9 +230,6 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
   };
 
   return (
-    // [PERBAIKAN WARNA]
-    // Menggunakan bg-gray-50 untuk Light dan dark:bg-neutral-950 untuk Dark.
-    // Transisi duration-300 ditambahkan agar perubahan warna halus saat toggle ditekan.
     <div className='p-4 sm:p-6 lg:p-8 h-full flex flex-col bg-gray-50 dark:bg-neutral-950 min-h-screen text-gray-900 dark:text-gray-200 transition-colors duration-300'>
       
       {/* Header */}
@@ -131,7 +239,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
             Upload Knowledge (Auto-RAG)
           </h1>
           <p className='text-gray-600 dark:text-gray-400 mt-1'>
-            Upload dokumen PDF/TXT. Sistem akan otomatis melakukan indexing dan refresh data.
+            Upload dokumen PDF/TXT. Sistem akan otomatis melakukan indexing dan mengunduh cadangan data terbaru.
           </p>
         </div>
         <button
@@ -145,7 +253,6 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
 
       {/* Main Content */}
       <div className="flex-1 flex justify-center">
-        {/* Card Container: Menggunakan dark:bg-neutral-900 untuk kontras dengan background utama */}
         <div className="w-full max-w-3xl bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-2xl shadow-sm p-8 h-fit transition-colors duration-300">
           
           <form onSubmit={handleUpload} className="space-y-6">
@@ -160,22 +267,45 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="Contoh: Panduan Akademik 2025"
-                  // Input Styling: dark mode menggunakan neutral-950 (lebih gelap dari card)
                   className="w-full px-4 py-3 bg-gray-50 dark:bg-neutral-950 border border-gray-200 dark:border-neutral-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-600"
                   required
                 />
               </div>
+
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Kategori
                 </label>
-                <input
-                  type="text"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  placeholder="Contoh: Akademik"
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-neutral-950 border border-gray-200 dark:border-neutral-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-600"
+                <CreatableSelect
+                  isClearable
+                  isDisabled={isLoadingCategories}
+                  isLoading={isLoadingCategories}
+                  onChange={handleCategoryChange}
+                  onCreateOption={(inputValue) => {
+                    handleCategoryChange({ label: inputValue, value: inputValue });
+                  }}
+                  options={categoryOptions}
+                  value={category ? { label: category, value: category } : null}
+                  placeholder="Pilih atau Ketik Kategori..."
                   required
+                  
+                  classNames={{
+                    control: (state) =>
+                      `!bg-gray-50 dark:!bg-neutral-950 !border-gray-200 dark:!border-neutral-700 !rounded-lg !text-sm !shadow-none !min-h-[48px] !px-2 ${
+                        state.isFocused ? '!ring-2 !ring-blue-500 !border-transparent' : ''
+                      }`,
+                    menu: () => 
+                      '!bg-white dark:!bg-neutral-900 !border !border-gray-200 dark:!border-neutral-700 !rounded-lg !mt-1 !z-50',
+                    option: (state) =>
+                      `!cursor-pointer !text-sm ${
+                        state.isFocused
+                          ? '!bg-blue-50 dark:!bg-blue-900/30 !text-blue-700 dark:!text-blue-200'
+                          : '!bg-white dark:!bg-neutral-900 !text-gray-900 dark:!text-white'
+                      }`,
+                    singleValue: () => '!text-gray-900 dark:!text-white',
+                    input: () => '!text-gray-900 dark:!text-white',
+                    placeholder: () => '!text-gray-400 dark:!text-neutral-600',
+                  }}
                 />
               </div>
             </div>
@@ -190,7 +320,6 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                   onClick={() => fileInputRef.current?.click()}
-                  // Upload Area Styling
                   className="border-2 border-dashed border-gray-300 dark:border-neutral-700 rounded-xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-gray-50 dark:hover:bg-neutral-800/50 transition-colors group"
                 >
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-full mb-4 group-hover:scale-110 transition-transform">
@@ -211,7 +340,6 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                   />
                 </div>
               ) : (
-                // File Selected Styling
                 <div className="border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 flex items-center justify-between animate-in fade-in zoom-in-95">
                   <div className="flex items-center gap-4">
                     <div className="p-3 bg-white dark:bg-neutral-800 rounded-lg shadow-sm border border-blue-100 dark:border-blue-800">

@@ -10,10 +10,9 @@ const knowledgeSchema = new mongoose.Schema({
     enum: ['ACTIVE', 'INACTIVE'],
     default: 'ACTIVE'
   },
-  // --- TAMBAHAN BARU ---
   is_sync: { 
     type: Boolean, 
-    default: false // Default false saat baru dibuat
+    default: false 
   }
 }, { timestamps: true });
 
