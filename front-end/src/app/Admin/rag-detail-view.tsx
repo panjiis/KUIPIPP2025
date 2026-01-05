@@ -43,19 +43,16 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 2. Fungsi Download Backup (Dipanggil otomatis setelah upload)
-  // 2. Fungsi Download Backup (DIPERBAIKI)
   const downloadLatestBackup = async () => {
     try {
       console.log("Memulai proses download backup...");
 
-      // TAMBAHAN PENTING: credentials: 'include' agar cookie login admin terbawa
       const res = await fetch('http://localhost:5000/api/knowledge', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include', // <--- INI KUNCINYA (Agar tidak ditolak server)
+        credentials: 'include', 
       });
 
       if (!res.ok) {
@@ -63,14 +60,12 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
       }
 
       const json = await res.json();
-      console.log("Data Knowledge diterima:", json); // Cek di Console browser (F12)
+      console.log("Data Knowledge diterima:", json); 
 
-      // Validasi struktur data yang lebih fleksibel
-      const items = json.data || json; // Jaga-jaga jika formatnya langsung array
+      const items = json.data || json; 
 
       if (items && Array.isArray(items) && items.length > 0) {
         
-        // Format isi file TXT
         const fileContent = items.map((item: KnowledgeItem) => (
           `TOPIC: ${item.topic}\n` +
           `CATEGORY: ${item.category}\n` +
@@ -79,7 +74,6 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
           `--------------------------------------------------\n`
         )).join('\n');
 
-        // Proses pembuatan file di memori browser
         const blob = new Blob([fileContent], { type: 'text/plain' });
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -88,11 +82,9 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
         link.href = url;
         link.download = `knowledge-backup-rag-${timestamp}.txt`;
         
-        // Teknik "Append-Click-Remove" agar support semua browser
         document.body.appendChild(link);
         link.click();
         
-        // Cleanup
         setTimeout(() => {
           document.body.removeChild(link);
           window.URL.revokeObjectURL(url);
@@ -104,8 +96,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
       }
     } catch (error) {
       console.error("Gagal mendownload backup otomatis:", error);
-      // Jangan tampilkan toast error jika hanya masalah minor, 
-      // tapi cek console untuk detailnya.
+
     }
   };
 
