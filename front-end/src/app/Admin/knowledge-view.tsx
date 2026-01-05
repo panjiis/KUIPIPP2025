@@ -376,7 +376,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
-};
+  };
 
   // Di dalam knowledge-view.tsx
 const handleUpdateRag = async () => {

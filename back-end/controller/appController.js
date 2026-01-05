@@ -8,9 +8,6 @@ console.log("🔥 appController loaded — siap jalan!");
 
 
 const getChat = async (req, res) => {
-  // if(!req.session._id){
-  //   return res.status(404).json({ error: true, message: "login required" });
-  // }
     try {
         const chatId = req.session.chatId;
 
@@ -30,12 +27,9 @@ const getChat = async (req, res) => {
     }
 };
 
-/**
- * save message to db
- */
+
 const postMsg = async (req, res) => {
   try {
-    // Pastikan chat sudah dibuat
     if (!req.session.chatId) {
       return res.status(400).json({ 
         error: true,
@@ -43,7 +37,6 @@ const postMsg = async (req, res) => {
         message: 'Chat harus dibuat terlebih dahulu.'
       });
     }
-    // Cek apakah chat dengan chatId ini masih aktif
     const chat = await Chat.findById(req.session.chatId);
 
     if (!chat) {
@@ -66,7 +59,6 @@ const postMsg = async (req, res) => {
 
     
 
-    // Buat pesan baru
     const newMessage = new Message({
       chatId: req.session.chatId,
       msg,
@@ -96,7 +88,6 @@ const postMsg = async (req, res) => {
       reply: replyText
     });
     
-    // Simpan ke database
     await newMessage.save();
     await newReply.save();
   } catch (error) {
@@ -111,33 +102,24 @@ const postMsg = async (req, res) => {
 
 const createChat = async (req, res) => {
   try {
-    // --- (MULAI PERBAIKAN CAPTCHA & CONSENT) ---
-
-    // 1. Ambil token CAPTCHA dan CONSENT dari body
-    const { captchaToken, consent } = req.body; // <-- PERUBAHAN DI SINI
+    const { captchaToken, consent } = req.body; 
 
     if (!captchaToken) {
       return res.status(400).json({ error: true, message: 'Verifikasi CAPTCHA diperlukan.' });
     }
 
-    // 2. Ambil Kunci Rahasia Anda dari file .env
     const secretKey = process.env.RECAPTCHA_SECRET_KEY;
     if (!secretKey) {
         console.error("RECAPTCHA_SECRET_KEY tidak ditemukan di file .env");
         return res.status(500).json({ error: true, message: 'Konfigurasi server error.' });
     }
 
-    // 3. Siapkan data untuk dikirim di BODY permintaan POST
     const verificationUrl = 'https://www.google.com/recaptcha/api/siteverify';
     
-    // Gunakan URLSearchParams untuk memformat data sebagai x-www-form-urlencoded
     const params = new URLSearchParams();
     params.append('secret', secretKey);
     params.append('response', captchaToken);
-    // Anda juga bisa menambahkan IP pengguna jika perlu:
-    // params.append('remoteip', req.ip);
-
-    // 4. Kirim permintaan verifikasi ke Google
+    
     const verificationResponse = await axios.post(verificationUrl, params, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
@@ -146,31 +128,23 @@ const createChat = async (req, res) => {
 
     const { success, 'error-codes': errorCodes } = verificationResponse.data;
 
-    // 5. Periksa apakah verifikasi gagal
     if (!success) {
-      // Log error-codes untuk debugging
       console.warn('Verifikasi CAPTCHA gagal:', errorCodes);
       return res.status(401).json({ error: true, message: 'Verifikasi CAPTCHA gagal. Silakan coba lagi.' });
     }
 
-    // --- (SELESAI VERIFIKASI CAPTCHA) ---
-
-
-    // 6. (Logika Asli Anda) - Hanya berjalan jika CAPTCHA berhasil
     if (req.session.chatId){
       setChatNonActive(req.session.chatId, req.session.consent);
       delete req.session.chatId;
-      delete req.session.consent; // Hapus juga session consent lama
+      delete req.session.consent; 
     }
     const status  = "ACTIVE";
 
-    // Buat dan simpan chat
     const newChat = new Chat({ status });
     await newChat.save();
     
-    // --- (PERBAIKAN: Simpan chatID DAN consent ke session) ---
     req.session.chatId = newChat._id;
-    req.session.consent = consent || 'false'; // <-- PERUBAHAN DI SINI
+    req.session.consent = consent || 'false'; 
 
     console.log(`Sesi chat ${newChat._id} dibuat dengan consent=${req.session.consent}`);
 
@@ -180,7 +154,6 @@ const createChat = async (req, res) => {
     });
   } catch (error) {
     console.error('Error saat membuat chat:', error);
-    // (BARU) Berikan detail error jika dari axios
     if (error.response) {
       console.error('Error data from Google:', error.response.data);
     }
@@ -190,7 +163,6 @@ const createChat = async (req, res) => {
 
 const setChatNonActive = async (chatId, consent) => {
   try {
-    // Cek apakah chat dengan chatId ini masih aktif
     const chat = await Chat.findById(chatId);
 
     if (!chat) {
@@ -212,9 +184,7 @@ const setChatNonActive = async (chatId, consent) => {
       console.log(`⚠️ Chat ${chatId} tidak ditemukan`);
       return null;
     }
-    // Hapus dari Map
     lastHeartbeat.delete(chatId);
-    // Validasi minimal isi pesan
     console.log(consent);
     console.log(consent=='true');
     console.log(consent=='false');
@@ -239,13 +209,11 @@ const nonactiveChat = async (req, res) => {
       return res.status(400).json({ error: true, message: 'Chat belum dibuat' });
     }
 
-    // Panggil fungsi logic
     const updatedChat = await setChatNonActive(req.session.chatId, req.session.consent);
 
     if (!updatedChat) {
       return res.status(404).json({ error: true, message: 'Chat tidak ditemukan' });
     }
-    // Hapus session setelah di-nonaktifkan
     delete req.session.chatId;
 
     return res.status(200).json({
@@ -260,70 +228,30 @@ const nonactiveChat = async (req, res) => {
 
 
 
-// Menyimpan waktu terakhir heartbeat untuk setiap chat
 const lastHeartbeat = new Map();
 
-// Endpoint heartbeat
 const postHeartbeat = async (req, res) => {
 
-  // Simpan waktu terakhir heartbeat (timestamp sekarang)
   lastHeartbeat.set(req.session.chatId, Date.now());
   console.log(`💓 Heartbeat diterima dari chatId ${req.session.chatId} pada ${new Date().toLocaleTimeString()}`);
 
   res.status(200).json({ message: "Heartbeat diterima" });
 };
 
-// Interval pengecekan tiap 1 menit
 setInterval(async () => {
   const now = Date.now();
-  const TIMEOUT = 5 * 60 * 1000; // 5 menit
+  const TIMEOUT = 5 * 60 * 1000; 
 
   for (const [chatId, lastTime] of lastHeartbeat.entries()) {
     if (now - lastTime > TIMEOUT) {
       console.log(`⚠️ Chat ${chatId} tidak aktif selama >5 menit. Menonaktifkan...`);
 
       try {
-        setChatNonActive(chatId, 'true');//sementara
+        setChatNonActive(chatId, 'true');
       } catch (err) {
         console.error(`❌ Gagal menonaktifkan chat ${chatId}:`, err.message);
       }
     }
   }
-}, 2 * 60 * 1000); // periksa setiap 1 menit
-
-// const postConsent = async (req, res) => {
-//   if (!req.session.chatId) {
-//     return res.status(400).json({ 
-//       error: true,
-//       refresh: true,
-//       message: 'Chat harus dibuat terlebih dahulu.'
-//     });
-//   }
-//   // Cek apakah chat dengan chatId ini masih aktif
-//   const chat = await Chat.findById(req.session.chatId);
-
-//   if (!chat) {
-//     return res.status(404).json({
-//       error: true,
-//       refresh: true,
-//       message: 'Chat tidak ditemukan.'
-//     });
-//   }
-
-//   if (chat.status !== "ACTIVE") {
-//     return res.status(400).json({
-//       error: true,
-//       refresh: true,
-//       message: 'Chat sudah tidak aktif. Silakan buat chat baru.'
-//     });
-//   }
-
-//   const { consent } = req.body;
-
-//   req.session.consent = consent;
-//   return res.status(200).json({
-//       error: false,
-//       message: 'berhasil consent'
-//     });
-// };
+}, 2 * 60 * 1000); 
 module.exports = { getChat, createChat, nonactiveChat, postMsg, setInterval, postHeartbeat };

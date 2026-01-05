@@ -1,4 +1,3 @@
-// models/knowledgeModel.js
 const mongoose = require('mongoose');
 
 const knowledgeSchema = new mongoose.Schema({

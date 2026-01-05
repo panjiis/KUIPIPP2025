@@ -1,4 +1,3 @@
-# app.py (Full Code dengan Upload & Auto-RAG)
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import multiprocessing
@@ -10,7 +9,6 @@ from datetime import datetime
 from pymongo import MongoClient
 from pypdf import PdfReader
 
-# Import rag module
 import rag
 
 app = FastAPI()
@@ -35,7 +33,6 @@ async def reply(req: Request):
         message = data.get("message", "")
         reply_text = rag.ask(message)
         
-        # PENTING: Cleanup setelah setiap request
         gc.collect()
         
         return {"Reply": reply_text}
@@ -43,7 +40,6 @@ async def reply(req: Request):
         print(f"Error di /reply: {e}")
         return {"Reply": "⚠️ Terjadi kesalahan saat memproses pertanyaan."}
 
-# === ENDPOINT BARU UNTUK UPLOAD & AUTO-RAG ===
 @app.post("/api/upload-knowledge")
 async def upload_knowledge(
     file: UploadFile = File(...),
@@ -56,13 +52,10 @@ async def upload_knowledge(
     try:
         content_text = ""
         
-        # 1. Baca File
         file_content = await file.read()
         
-        # 2. Ekstrak Teks berdasarkan tipe file
         if file.filename.lower().endswith('.pdf'):
             try:
-                # Menggunakan pypdf untuk membaca PDF dari memory (io.BytesIO)
                 pdf_reader = PdfReader(io.BytesIO(file_content))
                 for page in pdf_reader.pages:
                     text = page.extract_text()
@@ -75,16 +68,13 @@ async def upload_knowledge(
             try:
                 content_text = file_content.decode('utf-8')
             except UnicodeDecodeError:
-                # Fallback jika utf-8 gagal
                 content_text = file_content.decode('latin-1')
         else:
             raise HTTPException(status_code=400, detail="Format file tidak didukung. Gunakan PDF atau TXT.")
 
-        # Validasi konten kosong
         if not content_text.strip():
              raise HTTPException(status_code=400, detail="File kosong atau teks tidak terbaca (mungkin gambar/scan).")
 
-        # 3. Simpan ke MongoDB
         mongo_uri = os.getenv("MONGO_URI")
         if not mongo_uri:
              raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
@@ -106,7 +96,7 @@ async def upload_knowledge(
             "category": category,
             "content": content_text,
             "status": "ACTIVE",
-            "is_sync": False, # <--- TAMBAHAN: Default False saat baru upload
+            "is_sync": False, 
             "updatedAt": datetime.now().isoformat()
         }
         
@@ -115,18 +105,14 @@ async def upload_knowledge(
         
         print(f"✅ Data tersimpan di MongoDB dengan ID: {result.inserted_id}")
         
-        # 4. AUTO RAG (Menjalankan Indexing Otomatis)
         print("🔄 Menjalankan Auto-RAG Indexing...")
         
-        # Reload rag module agar config terbaru terbaca
         importlib.reload(rag)
         
-        # Jalankan proses RAG (Indexing) di process terpisah agar memori aman
         rag_process = multiprocessing.Process(target=rag.mainrag)
         rag_process.start()
-        rag_process.join() # Tunggu sampai selesai (blocking) agar user tahu statusnya
+        rag_process.join()
         
-        # Bersihkan memori
         gc.collect()
         
         if rag_process.exitcode == 0:
@@ -168,7 +154,7 @@ def do_rag_route():
         print("Memulai proses RAG di dalam proses terpisah...")
         rag_process = multiprocessing.Process(target=rag.mainrag)
         rag_process.start()
-        rag_process.join() # Menunggu proses selesai
+        rag_process.join()
         
         gc.collect()
         
@@ -214,7 +200,6 @@ def reset_memory():
 if __name__ == "__main__":
     import uvicorn
     
-    # Set multiprocessing method untuk Windows
     multiprocessing.set_start_method('spawn', force=True)
     
     print("\n" + "="*50)

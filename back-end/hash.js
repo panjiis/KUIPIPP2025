@@ -1,6 +1,5 @@
-// buatHash.js
 const bcrypt = require('bcrypt');
-const password = 'shaka220081'; // <-- GANTI DENGAN PASSWORD YANG ANDA INGINKAN
+const password = 'admin123'; //(nanti ganti aja tergantung dari password super admin pertama)
 
 const saltRounds = 10;
 

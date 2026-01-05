@@ -6,8 +6,6 @@ const MongoStore = require('connect-mongo');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const axios = require('axios');
-
-// Import routes
 const routes = require('./routes/routes');
 
 
@@ -43,11 +41,11 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: process.env.MONGO_URI,
     collectionName: 'sessions',
-    ttl: 14 * 24 * 60 * 60 // 14 hari
+    ttl: 14 * 24 * 60 * 60
   }),
   cookie: {
     maxAge: 14 * 24 * 60 * 60 * 1000,
-    secure: false, // ubah ke true kalau pakai HTTPS
+    secure: false,
     httpOnly: true,
     sameSite: 'lax'
   }

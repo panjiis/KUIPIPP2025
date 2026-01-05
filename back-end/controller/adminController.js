@@ -1,12 +1,8 @@
 const bcrypt = require('bcrypt');
 const { Admin } = require('../models/adminModel');
-// Impor ini diperlukan untuk getChatHistory dan deleteOldChats
 const { Chat } = require('../models/chatModel');
 const { Message } = require('../models/messageModel');
 
-/**
- * @description Membuat akun admin baru (Hanya bisa oleh admin lain yang sudah login)
- */
 const createAccount = async (req, res) => {
   const { username, password } = req.body;
 
@@ -50,9 +46,6 @@ const createAccount = async (req, res) => {
 };
 
 
-/**
- * @description Login untuk admin yang sudah ada
- */
 const login = async (req, res) => {
   const { username, password } = req.body;
 
@@ -70,7 +63,6 @@ const login = async (req, res) => {
     req.session.adminId = admin._id;
     req.session.username = admin.username;
     
-    // --- TAMBAHAN BARU: Simpan Role ke Session ---
     req.session.role = admin.role; 
 
     req.session.save(err => {
@@ -84,7 +76,7 @@ const login = async (req, res) => {
         message: 'Berhasil Sign In',
         adminId: admin._id,
         username: admin.username,
-        role: admin.role // Kirim juga ke frontend agar bisa disimpan di localStorage
+        role: admin.role 
       });
     });
   } catch (error) {
@@ -97,9 +89,6 @@ const login = async (req, res) => {
   }
 };
 
-/**
- * @description Logout admin
- */
 const logout = (req, res) => {
   req.session.destroy(err => {
     if (err) {
@@ -112,10 +101,8 @@ const logout = (req, res) => {
   });
 };
 
-// 1. GET ALL ADMINS
 const getAllAdmins = async (req, res) => {
   try {
-    // Ambil semua admin tapi sembunyikan password
     const admins = await Admin.find({}, '-password').sort({ createdAt: -1 });
     res.status(200).json({ error: false, data: admins });
   } catch (error) {
@@ -123,7 +110,6 @@ const getAllAdmins = async (req, res) => {
   }
 };
 
-// 2. UPDATE PASSWORD ADMIN
 const updateAdminPassword = async (req, res) => {
   const { id } = req.params;
   const { newPassword } = req.body;
@@ -144,11 +130,9 @@ const updateAdminPassword = async (req, res) => {
   }
 };
 
-// 3. DELETE ADMIN
 const deleteAdmin = async (req, res) => {
   const { id } = req.params;
   
-  // Cegah menghapus diri sendiri (Opsional, tapi disarankan)
   if (req.session.adminId === id) {
     return res.status(400).json({ error: true, message: 'Tidak dapat menghapus akun sendiri saat login.' });
   }
@@ -162,7 +146,7 @@ const deleteAdmin = async (req, res) => {
 };
 
 const changeOwnPassword = async (req, res) => {
-  const adminId = req.session.adminId; // Ambil ID dari session login
+  const adminId = req.session.adminId; 
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword) {
@@ -179,17 +163,14 @@ const changeOwnPassword = async (req, res) => {
       return res.status(404).json({ error: true, message: 'Admin tidak ditemukan' });
     }
 
-    // 1. Verifikasi Password Lama (PENTING!)
     const isMatch = await bcrypt.compare(currentPassword, admin.password);
     if (!isMatch) {
       return res.status(400).json({ error: true, message: 'Password lama salah' });
     }
 
-    // 2. Hash Password Baru
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
-    // 3. Update Database
     admin.password = hashedPassword;
     await admin.save();
 
@@ -201,10 +182,9 @@ const changeOwnPassword = async (req, res) => {
 
 const getAllChats = async (req, res) => {
   try {
-    // Cari semua chat, pilih field yang penting, dan urutkan dari yang terbaru
     const chats = await Chat.find({})
-      .select('_id status createdAt') // Ambil ID, status, dan waktu dibuat
-      .sort({ createdAt: -1 }); // Urutkan dari yang paling baru
+      .select('_id status createdAt')
+      .sort({ createdAt: -1 }); 
 
     res.status(200).json({ error: false, data: chats });
   } catch (error) {
@@ -214,16 +194,14 @@ const getAllChats = async (req, res) => {
 
 const deleteChatById = async (req, res) => {
   try {
-    const { id } = req.params; // Mengambil ID dari parameter URL
+    const { id } = req.params;
 
-    // 1. Hapus dokumen chat dari koleksi 'chat'
     const deletedChat = await Chat.findByIdAndDelete(id);
 
     if (!deletedChat) {
       return res.status(404).json({ error: true, message: 'Chat tidak ditemukan' });
     }
 
-    // 2. Hapus semua pesan yang terkait dengan chat tersebut dari koleksi 'message'
     await Message.deleteMany({ chatId: id.toString() });
 
     res.status(200).json({ error: false, message: `Chat ID ${id} dan semua pesannya berhasil dihapus.` });
@@ -233,11 +211,7 @@ const deleteChatById = async (req, res) => {
   }
 };
 
-/**
- * @description Mendapatkan riwayat chat berdasarkan chatId
- */
 const getChatHistory = async (req, res) => {
-    // Fungsi ini SUDAH SESUAI dan tidak perlu diubah.
     try {
         const { chatId } = req.query; 
 
@@ -247,7 +221,7 @@ const getChatHistory = async (req, res) => {
 
         const messages = await Message.aggregate([
           {
-            $match: { chatId: chatId } // Mencocokkan String
+            $match: { chatId: chatId } 
           },
           {
             $lookup: {
@@ -256,12 +230,12 @@ const getChatHistory = async (req, res) => {
               pipeline: [
                 {
                   $addFields: {
-                    _idStr: { $toString: "$_id" } // Mengubah ObjectId -> String
+                    _idStr: { $toString: "$_id" } 
                   }
                 },
                 {
                   $match: {
-                    $expr: { $eq: ["$_idStr", "$$chatIdString"] } // Membandingkan String vs String
+                    $expr: { $eq: ["$_idStr", "$$chatIdString"] } 
                   }
                 }
               ],
@@ -300,7 +274,6 @@ const deleteOldChats = async (req, res) => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    // Ambil semua chat yang memenuhi kondisi untuk dihapus
     const oldChats = await Chat.find({
       status: "NONACTIVE",
       updatedAt: { $lte: sevenDaysAgo }
@@ -312,16 +285,12 @@ const deleteOldChats = async (req, res) => {
       });
     }
 
-    // Buat array berisi ObjectId untuk menghapus dari koleksi 'chat'
     const chatObjectIds = oldChats.map(chat => chat._id);
 
-    // Buat array berisi String untuk menghapus dari koleksi 'message'
     const chatStringIds = oldChats.map(chat => chat._id.toString());
 
-    // Hapus semua message yang memiliki chatId (String)
     await Message.deleteMany({ chatId: { $in: chatStringIds } });
 
-    // Hapus chat yang memenuhi kondisi (menggunakan ObjectId)
     await Chat.deleteMany({ _id: { $in: chatObjectIds } });
     
     res.status(200).json({
