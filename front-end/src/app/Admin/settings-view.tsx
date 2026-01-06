@@ -2,7 +2,7 @@
 'use client';
 import { useState } from 'react';
 import { 
-  Lock, Save, Loader2, UserCog, Eye, EyeOff 
+  Lock, Loader2, UserCog, Eye, EyeOff, ShieldCheck 
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -64,28 +64,35 @@ export default function SettingsView() {
     }
   };
 
-  // Helper untuk Input Password dengan Toggle
+  // Helper untuk Input Password dengan Style Glass
   const PasswordInput = ({ 
     label, value, onChange, show, setShow, placeholder 
   }: PasswordInputProps) => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+    <div className="mb-5 group">
+      <label className="block text-sm font-semibold text-[#13484f] mb-2 pl-1">
         {label}
       </label>
       <div className="relative">
+        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <Lock className="h-4 w-4 text-primary/70 group-focus-within:text-primary transition-colors" />
+        </div>
         <input 
           type={show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full p-2.5 pl-10 pr-10 rounded-lg border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+          className="w-full pl-10 pr-10 py-3 rounded-xl 
+                     bg-white/60 border border-white/50 
+                     text-gray-700 placeholder:text-gray-400
+                     focus:ring-2 focus:ring-primary/50 focus:border-primary/50 focus:bg-white/80
+                     outline-none transition-all duration-200 shadow-sm backdrop-blur-sm"
           placeholder={placeholder}
           required
         />
-        <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
         <button
           type="button"
           onClick={() => setShow(!show)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-md
+                     text-gray-400 hover:text-primary hover:bg-primary/10 transition-all"
         >
           {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
         </button>
@@ -94,60 +101,92 @@ export default function SettingsView() {
   );
 
   return (
-    <div className='p-4 sm:p-6 lg:p-8 h-full flex flex-col items-center justify-center'>
+    <div className='p-4 sm:p-6 h-full flex flex-col items-center justify-center overflow-y-auto'>
       
-      <div className="w-full max-w-md bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-lg p-8">
+      {/* Container Utama menggunakan class 'glass-card' dari globals.css */}
+      <div className="glass-card w-full max-w-lg p-8 sm:p-10 relative overflow-hidden animate-in fade-in zoom-in duration-300">
         
-        <header className="text-center mb-8">
-          <div className="w-16 h-16 bg-gray-100 dark:bg-neutral-800 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600 dark:text-blue-400">
-            <UserCog className="w-8 h-8" />
+        {/* Dekorasi Background Halus (Opsional) */}
+        <div className="absolute top-0 right-0 -mt-10 -mr-10 w-32 h-32 bg-primary/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-0 left-0 -mb-10 -ml-10 w-32 h-32 bg-secondary/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        <header className="text-center mb-8 relative z-10">
+          <div className="mx-auto w-20 h-20 mb-4 rounded-2xl bg-gradient-to-br from-primary/10 to-accent/20 border border-white/50 flex items-center justify-center shadow-inner">
+            <UserCog className="w-10 h-10 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Pengaturan Akun</h1>
-          <p className="text-sm text-gray-500 mt-1">Ganti password akun Anda</p>
+          <h1 className="text-2xl font-bold text-[#13484f] tracking-tight">
+            Pengaturan Akun
+          </h1>
+          <p className="text-sm text-gray-500 mt-2 max-w-xs mx-auto leading-relaxed">
+            Amankan akun Anda dengan memperbarui kata sandi secara berkala.
+          </p>
         </header>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="relative z-10">
           
-          <PasswordInput 
-            label="Password Lama" 
-            value={currentPassword} 
-            onChange={setCurrentPassword} 
-            show={showCurrent} 
-            setShow={setShowCurrent} 
-            placeholder="Masukkan password saat ini"
-          />
+          <div className="bg-white/40 border border-white/50 rounded-2xl p-6 shadow-sm mb-6">
+             <PasswordInput 
+              label="Password Lama" 
+              value={currentPassword} 
+              onChange={setCurrentPassword} 
+              show={showCurrent} 
+              setShow={setShowCurrent} 
+              placeholder="Masukkan password saat ini"
+            />
+          </div>
 
-          <hr className="my-6 border-gray-100 dark:border-neutral-800" />
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-gray-300/50"></div>
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white/50 px-3 text-xs font-medium text-black-500 rounded-full backdrop-blur-sm">
+                Password Baru
+              </span>
+            </div>
+          </div>
 
-          <PasswordInput 
-            label="Password Baru" 
-            value={newPassword} 
-            onChange={setNewPassword} 
-            show={showNew} 
-            setShow={setShowNew} 
-            placeholder="Minimal 6 karakter"
-          />
+          <div className="space-y-4 text-black">
+            <PasswordInput 
+              label="Password Baru" 
+              value={newPassword} 
+              onChange={setNewPassword} 
+              show={showNew} 
+              setShow={setShowNew} 
+              placeholder="Minimal 6 karakter"
+            />
 
-          <PasswordInput 
-            label="Konfirmasi Password Baru" 
-            value={confirmPassword} 
-            onChange={setConfirmPassword} 
-            show={showConfirm} 
-            setShow={setShowConfirm} 
-            placeholder="Ulangi password baru"
-          />
+            <PasswordInput 
+              label="Konfirmasi Password" 
+              value={confirmPassword} 
+              onChange={setConfirmPassword} 
+              show={showConfirm} 
+              setShow={setShowConfirm} 
+              placeholder="Ulangi password baru"
+            />
+          </div>
 
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full mt-8 flex items-center justify-center gap-2 py-3.5 px-4 
+                       bg-gradient-to-r from-primary to-accent 
+                       hover:shadow-lg hover:shadow-primary/20 hover:scale-[1.01] active:scale-[0.98]
+                       text-black rounded-xl font-semibold transition-all duration-200 
+                       disabled:opacity-70 disabled:cursor-not-allowed disabled:shadow-none border border-white/20"
           >
-            {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            <span>{loading ? 'Menyimpan...' : 'Simpan Perubahan'}</span>
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <ShieldCheck className="w-5 h-5" />
+            )}
+            <span>{loading ? 'Menyimpan Perubahan...' : 'Simpan Perubahan'}</span>
           </button>
 
         </form>
       </div>
+      
+  
     </div>
   );
 }

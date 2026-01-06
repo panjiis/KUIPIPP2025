@@ -1,39 +1,54 @@
-import type { Config } from 'tailwindcss'
+import type { Config } from 'tailwindcss';
 
 const config: Config = {
-  darkMode: 'class', // Ini adalah kunci untuk next-themes
+  darkMode: 'class', // Penting untuk fitur toggle switch manual
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './app/**/*.{js,ts,jsx,tsx,mdx}',
     './src/**/*.{js,ts,jsx,tsx,mdx}',
-    './Admin/**/*.{js,ts,jsx,tsx}', // Pastikan ini mengarah ke folder Admin Anda
-    './chatbot/**/*.{js,ts,jsx,tsx}', // Dan folder chatbot
+    './Admin/**/*.{js,ts,jsx,tsx}',
+    './chatbot/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {
       colors: {
-        // Warna kustom Anda
-        'theme-dark': '#2a2a2a', // Warna dark utama Anda
-        'theme-light-gray': '#D3D3D3', // Warna light sekunder Anda
-        
-        // Palet warna yang lebih baik untuk tema
-        dark: {
-          100: '#1a1a1a', // Background utama
-          200: '#2a2a2a', // Background sekunder (warna Anda)
-          300: '#3c3c3c', // Border / Aksen
-          400: '#555555', // Hover
+        // 1. Semantic Colors (Menggunakan variabel CSS dari globals.css)
+        background: 'var(--background)',
+        foreground: 'var(--foreground)',
+        border: 'var(--border)',
+
+        primary: {
+          DEFAULT: 'var(--primary)', 
+          foreground: 'var(--primary-foreground)',
         },
-        light: {
-          100: '#FFFFFF', // Background utama
-          200: '#F5F5F7', // Background sekunder
-          300: '#E8E8ED', // Border
-          400: '#D3D3D3', // Aksen (warna Anda)
-        }
+        secondary: {
+          DEFAULT: 'var(--secondary)', 
+          foreground: 'var(--secondary-foreground)',
+        },
+        accent: {
+          DEFAULT: 'var(--accent)', 
+          foreground: 'var(--accent-foreground)',
+        },
+        muted: {
+          DEFAULT: 'var(--muted)', 
+          foreground: 'var(--muted-foreground)',
+        },
+
+        // 2. Official Unpad Palette (Hardcoded Hex)
+        // Gunakan ini jika ingin warna spesifik tanpa terpengaruh dark mode otomatis
+        unpad: {
+          lightGray: '#E6E6E6',
+          aqua: '#389EA9',
+          gold: '#F4B106',
+          teal: '#42929D',      // Primary Brand Color
+          darkTeal: '#2B7F8A',
+          orange: '#ED910C',
+        },
       },
     },
   },
   plugins: [],
-}
+};
 
-export default config
+export default config;

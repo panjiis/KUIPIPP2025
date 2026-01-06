@@ -1,14 +1,14 @@
 // src/app/Admin/rag-detail-view.tsx
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   UploadCloud, 
   FileText, 
   X, 
   Loader2, 
   CornerDownLeft,
-  Wand2, // Icon tongkat sihir untuk fitur AI
+  Wand2, 
 } from 'lucide-react';
 import CreatableSelect from 'react-select/creatable';
 import { toast } from 'sonner';
@@ -20,6 +20,12 @@ interface RagDetailViewProps {
 }
 
 interface CategoryOption {
+  label: string;
+  value: string;
+}
+
+// Interface untuk menghindari error ESLint 'any' pada event react-select
+interface SelectOption {
   label: string;
   value: string;
 }
@@ -36,12 +42,11 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
 
   // State Proses Upload
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadStep, setUploadStep] = useState<string>(''); // Status teks (misal: "Sedang membaca PDF...")
+  const [uploadStep, setUploadStep] = useState<string>(''); 
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 1. FETCH KATEGORI (Dari Node.js Port 5000)
-  // Agar dropdown kategori terisi data yang sudah ada sebelumnya
+  // 1. FETCH KATEGORI
   useEffect(() => {
     setIsLoadingCategories(true);
     fetch('http://localhost:5000/api/knowledge/categories')
@@ -64,16 +69,13 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     if (e.target.files && e.target.files[0]) {
       const selected = e.target.files[0];
       
-      // Validasi Ukuran (Max 10MB agar tidak timeout)
       if (selected.size > 10 * 1024 * 1024) {
         toast.error("Ukuran file terlalu besar (Maks 10MB)");
         return;
       }
 
-      // Validasi Tipe
       if (selected.type === 'application/pdf' || selected.type === 'text/plain') {
         setFile(selected);
-        // Otomatis isi topik dari nama file jika field topik masih kosong
         if (!topic) {
           const name = selected.name.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
           setTopic(name);
@@ -89,7 +91,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 3. HANDLER UPLOAD (Ke Python Port 8080)
+  // 3. HANDLER UPLOAD
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -106,10 +108,8 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
       formData.append('topic', topic);
       formData.append('category', category);
 
-      // STEP 1: Upload ke Python untuk diproses AI
       setUploadStep('AI sedang membaca & merapikan format PDF...');
       
-      // NOTE: Mengirim ke Port 8080 (Python) karena di sana ada logic "Smart Formatting"
       const response = await fetch('http://localhost:8080/api/upload-knowledge', {
         method: 'POST',
         body: formData,
@@ -120,22 +120,16 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
         throw new Error(errData.detail || 'Gagal memproses dokumen di server AI.');
       }
 
-    
-
-      // STEP 2: Sukses
       setUploadStep('Selesai! Menyimpan data...');
-      await new Promise(r => setTimeout(r, 800)); // Delay dikit untuk UX
+      await new Promise(r => setTimeout(r, 800)); 
 
       toast.success("Dokumen Berhasil Diproses!", {
         description: "Teks PDF telah dirapikan menjadi format tabel/list dan disimpan ke Knowledge Base."
       });
 
-      // Reset
       setFile(null);
       setTopic('');
       setCategory('');
-      
-      // Kembali ke halaman list knowledge
       onSuccess();
 
     } catch (error) {
@@ -151,40 +145,44 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
 
   // --- RENDER UI ---
   return (
-    <div className='p-6 h-full flex flex-col overflow-y-auto bg-gray-50 dark:bg-neutral-950'>
-      <div className='max-w-3xl mx-auto w-full'>
+    <div className='p-4 sm:p-6 lg:p-8 h-full flex flex-col animate-in fade-in duration-300 overflow-y-auto'>
+      <div className='max-w-4xl mx-auto w-full'>
         
-        {/* Header */}
-        <div className='mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4'>
+        {/* Header dengan style Glassmorphism */}
+        <div className='mb-6 flex justify-between items-center bg-white/40 backdrop-blur-md p-4 rounded-xl border border-white/50 shadow-sm'>
           <div>
-            <h1 className='text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2'>
-              <UploadCloud className="w-8 h-8 text-blue-600" />
+            <h1 className='text-3xl font-bold text-[#13484f] tracking-tight flex items-center gap-2'>
+              <UploadCloud className="w-8 h-8 text-primary" />
               Upload Dokumen Cerdas
             </h1>
-            <p className='text-gray-600 dark:text-gray-400 mt-1 text-sm'>
+            <p className='text-gray-600 mt-1 font-medium opacity-80 text-sm'>
               Upload PDF (Jadwal, Biaya, SK), AI akan otomatis membaca dan memperbaiki tabel yang berantakan.
             </p>
           </div>
           <button
             onClick={onBack}
             disabled={isUploading}
-            className='flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 dark:bg-neutral-900 dark:border-neutral-800 dark:text-gray-300 dark:hover:bg-neutral-800 transition-colors disabled:opacity-50'
+            className='flex items-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold text-[#13484f] 
+                       glass-card hover:bg-white/40 border-white/50 shadow-sm transition-all active:scale-95 disabled:opacity-50'
           >
             <CornerDownLeft className='w-4 h-4' />
             Batal
           </button>
         </div>
 
-        {/* Card Form */}
-        <div className='bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-2xl shadow-sm p-6'>
-          <form onSubmit={handleUpload} className='space-y-6'>
+        {/* Card Form Utama (Glass Card) */}
+        <div className='glass-card p-6 sm:p-10 relative overflow-hidden shadow-xl'>
+          {/* Background Decor */}
+          <div className="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
+          
+          <form onSubmit={handleUpload} className='space-y-8 relative z-10'>
             
             {/* 1. Input Topik & Kategori */}
-            <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-8'>
               
               {/* Judul */}
-              <div>
-                <label className='block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2'>
+              <div className="group">
+                <label className='block text-sm font-bold text-[#13484f] mb-2 pl-1'>
                   Judul / Topik Dokumen
                 </label>
                 <input
@@ -192,7 +190,11 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                   value={topic}
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder="Contoh: Jadwal UAS Semester Genap 2025"
-                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-neutral-950 border border-gray-200 dark:border-neutral-800 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white text-sm"
+                  className="w-full px-4 py-3 rounded-xl 
+                             bg-white/60 border border-white/50 
+                             text-gray-700 placeholder:text-gray-400
+                             focus:ring-2 focus:ring-primary/50 focus:border-primary/50 focus:bg-white/80
+                             outline-none transition-all duration-200 shadow-sm backdrop-blur-sm text-sm"
                   required
                   disabled={isUploading}
                 />
@@ -200,17 +202,16 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
 
               {/* Kategori (Dropdown Creatable) */}
               <div>
-                <label className='block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2'>
+                <label className='block text-sm font-bold text-[#13484f] mb-2 pl-1'>
                   Kategori
                 </label>
-                <CreatableSelect
+                <CreatableSelect<SelectOption>
                   isClearable
                   isDisabled={isUploading || isLoadingCategories}
                   isLoading={isLoadingCategories}
                   onChange={(newValue) => setCategory(newValue ? newValue.value : '')}
                   onCreateOption={(inputValue) => {
                     setCategory(inputValue);
-                    // Tambahkan opsi baru sementara ke state agar user melihatnya
                     setCategoryOptions(prev => [...prev, { label: inputValue, value: inputValue }]);
                   }}
                   options={categoryOptions}
@@ -218,19 +219,19 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                   placeholder="Pilih atau Ketik Baru..."
                   classNames={{
                     control: (state) =>
-                      `!bg-gray-50 dark:!bg-neutral-950 !border-gray-200 dark:!border-neutral-800 !rounded-xl !shadow-none !py-0.5 ${
-                        state.isFocused ? '!ring-2 !ring-blue-500 !border-transparent' : ''
+                      `!bg-white/60 !backdrop-blur-sm !border-white/50 !rounded-xl !shadow-none !py-1 ${
+                        state.isFocused ? '!ring-2 !ring-primary/50 !border-primary/50' : ''
                       }`,
                     menu: () => 
-                      '!bg-white dark:!bg-neutral-900 !border !border-gray-200 dark:!border-neutral-800 !rounded-xl !mt-1 !shadow-lg',
+                      '!bg-white/90 !backdrop-blur-md !border !border-white/40 !rounded-xl !mt-2 !shadow-xl !overflow-hidden',
                     option: (state) =>
-                      `!cursor-pointer !text-sm ${
+                      `!cursor-pointer !text-sm !py-2.5 !px-4 ${
                         state.isFocused
-                          ? '!bg-blue-50 dark:!bg-blue-900/30 !text-blue-700 dark:!text-blue-200'
-                          : '!bg-white dark:!bg-neutral-900 !text-gray-900 dark:!text-white'
+                          ? '!bg-primary/10 !text-primary'
+                          : '!bg-transparent !text-gray-700 hover:!bg-white/40'
                       }`,
-                    singleValue: () => '!text-gray-900 dark:!text-white !text-sm',
-                    input: () => '!text-gray-900 dark:!text-white !text-sm',
+                    singleValue: () => '!text-gray-800 !text-sm !font-medium',
+                    input: () => '!text-gray-800 !text-sm',
                     placeholder: () => '!text-gray-400 !text-sm'
                   }}
                 />
@@ -239,14 +240,14 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
 
             {/* 2. Drag & Drop Area */}
             <div>
-              <label className='block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2'>
+              <label className='block text-sm font-bold text-[#13484f] mb-2 pl-1'>
                 File Dokumen (PDF/TXT)
               </label>
               <div 
-                className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all cursor-pointer relative group
+                className={`border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer relative group
                   ${file 
-                    ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/10' 
-                    : 'border-gray-300 dark:border-neutral-700 hover:border-blue-400 hover:bg-gray-50 dark:hover:bg-neutral-800'}`}
+                    ? 'border-primary bg-primary/5 shadow-inner' 
+                    : 'border-white/60 bg-white/30 hover:border-primary/50 hover:bg-white/50 shadow-sm'}`}
               >
                 <input
                   ref={fileInputRef}
@@ -258,30 +259,30 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                 />
                 
                 {!file ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="p-4 bg-blue-100 dark:bg-blue-900/30 rounded-full text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
-                      <UploadCloud className="w-8 h-8" />
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="p-5 bg-primary/10 rounded-2xl text-primary group-hover:scale-110 transition-transform shadow-sm border border-primary/20">
+                      <UploadCloud className="w-10 h-10" />
                     </div>
                     <div>
-                      <p className="font-bold text-gray-900 dark:text-white">
+                      <p className="font-bold text-[#13484f] text-lg">
                         Klik atau Tarik File PDF ke sini
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Maksimal 10MB. Disarankan PDF yang berisi teks (bukan scan gambar).
+                      <p className="text-xs text-gray-500 mt-2 max-w-xs mx-auto leading-relaxed">
+                        Maksimal 10MB. Disarankan PDF berbasis teks untuk hasil pemrosesan AI yang maksimal.
                       </p>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between bg-white dark:bg-neutral-900 p-4 rounded-xl shadow-sm border border-blue-200 dark:border-blue-800 relative z-20">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2.5 bg-red-100 text-red-600 rounded-lg">
-                        <FileText className="w-6 h-6" />
+                  <div className="flex items-center justify-between bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-md border border-primary/30 relative z-20 animate-in zoom-in-95 duration-200">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-red-100 text-red-600 rounded-xl shadow-inner">
+                        <FileText className="w-8 h-8" />
                       </div>
                       <div className="text-left">
-                        <p className="font-bold text-gray-900 dark:text-white truncate max-w-[200px] text-sm">
+                        <p className="font-bold text-gray-800 truncate max-w-[250px] text-sm">
                           {file.name}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 mt-0.5">
                           {(file.size / 1024 / 1024).toFixed(2)} MB
                         </p>
                       </div>
@@ -290,49 +291,54 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
-                        e.stopPropagation(); // Mencegah trigger input file lagi
+                        e.stopPropagation(); 
                         removeFile();
                       }}
                       disabled={isUploading}
-                      className="p-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500 rounded-full transition-colors"
+                      className="p-2.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded-full transition-all active:scale-90"
                     >
-                      <X className="w-5 h-5" />
+                      <X className="w-6 h-6" />
                     </button>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* 3. Info AI Box */}
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex gap-3">
-              <Wand2 className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-800 dark:text-amber-200 leading-relaxed">
-                <strong>Fitur AI Auto-Format:</strong> Sistem akan otomatis membaca PDF Anda. Jika ada tabel jadwal atau daftar poin yang berantakan, AI akan menyusunnya kembali menjadi format tabel yang rapi agar mudah diedit nanti.
+            {/* 3. Info AI Box (Style Amber Glass) */}
+            <div className="bg-amber-50/40 backdrop-blur-sm border border-amber-200 rounded-2xl p-5 flex gap-4 shadow-sm">
+              <div className="p-2 bg-amber-100 rounded-lg h-fit">
+                <Wand2 className="w-5 h-5 text-amber-600 shrink-0" />
+              </div>
+              <div className="text-sm text-amber-900 leading-relaxed font-medium">
+                <strong className="text-amber-700 block mb-1">Fitur AI Auto-Format:</strong> 
+                Sistem otomatis membaca PDF Anda. Jika terdapat tabel jadwal atau daftar poin yang berantakan, AI akan menyusunnya kembali menjadi format yang rapi dan terstruktur.
               </div>
             </div>
 
             {/* 4. Submit Button */}
-            <button
-              type="submit"
-              disabled={isUploading || !file}
-              className={`w-full py-4 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-3
-                ${isUploading || !file
-                  ? 'bg-gray-400 dark:bg-neutral-700 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-600/30 active:scale-[0.98]'
-                }`}
-            >
-              {isUploading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="animate-pulse">{uploadStep}</span>
-                </>
-              ) : (
-                <>
-                  <UploadCloud className="w-5 h-5" />
-                  <span>Upload & Proses dengan AI</span>
-                </>
-              )}
-            </button>
+            <div className="pt-4">
+              <button
+                type="submit"
+                disabled={isUploading || !file}
+                className={`w-full py-4 rounded-xl font-bold text-white transition-all shadow-lg flex items-center justify-center gap-3 active:scale-[0.98]
+                  ${isUploading || !file
+                    ? 'bg-gray-300 cursor-not-allowed opacity-70 shadow-none'
+                    : 'bg-gradient-to-r from-primary to-accent hover:shadow-primary/30 hover:brightness-110'
+                  }`}
+              >
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    <span className="animate-pulse">{uploadStep}</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-6 h-6" />
+                    <span>Upload & Proses dengan AI</span>
+                  </>
+                )}
+              </button>
+            </div>
 
           </form>
         </div>
@@ -340,3 +346,4 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     </div>
   );
 }
+
