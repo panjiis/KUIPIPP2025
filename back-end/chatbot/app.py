@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import multiprocessing
 import gc
@@ -9,10 +9,15 @@ import json
 import asyncio
 from datetime import datetime
 from pymongo import MongoClient
+from bson import ObjectId
+import concurrent.futures
+import time
+import traceback
 
 # --- PERUBAHAN: GANTI PYPDF DENGAN PDFPLUMBER ---
-import pdfplumber 
+import pdfplumber
 
+# local rag module (must be available)
 import rag
 
 app = FastAPI()
@@ -25,87 +30,233 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/")
 def read_root():
     return {"Hello": "Server AI Chatbot (WebSocket Ready + Table Support)"}
 
-# ==============================================================================
-# HELPER: KONVERSI TABEL KE MARKDOWN
-# ==============================================================================
+
+# ========================================================================
+# Helper: convert table (pdfplumber) to markdown
+# ========================================================================
 def convert_table_to_markdown(table):
     """
     Mengubah list of lists dari pdfplumber menjadi string Markdown Table.
     Contoh Input: [['Nama', 'Umur'], ['Ali', '20']]
-    Output: 
+    Output:
     | Nama | Umur |
     |---|---|
     | Ali | 20 |
     """
-    if not table or len(table) < 2: return ""
-    
+    if not table or len(table) < 1:
+        return ""
+
     try:
-        # 1. Bersihkan None menjadi string kosong
         cleaned_table = [[str(cell) if cell is not None else "" for cell in row] for row in table]
-        
-        # 2. Buat Header
         header = "| " + " | ".join(cleaned_table[0]) + " |"
         separator = "| " + " | ".join(["---"] * len(cleaned_table[0])) + " |"
-        
-        # 3. Buat Body
-        body = ""
+
+        body_lines = []
         for row in cleaned_table[1:]:
-            # Gabungkan row, ganti newline dalam sel dengan spasi agar tabel tidak pecah
             clean_row = [cell.replace("\n", " ") for cell in row]
-            body += "\n| " + " | ".join(clean_row) + " |"
-            
-        return f"\n{header}\n{separator}{body}\n"
+            body_lines.append("| " + " | ".join(clean_row) + " |")
+
+        if body_lines:
+            return f"\n{header}\n{separator}\n" + "\n".join(body_lines) + "\n"
+        return f"\n{header}\n{separator}\n"
     except Exception as e:
         print(f"⚠️ Table conversion error: {e}")
         return ""
 
-# ==============================================================================
-# 1. WEBSOCKET ENDPOINT (UTAMA)
-# ==============================================================================
+
+# ========================================================================
+# Parallel PDF extraction helper (page-level)
+# ========================================================================
+def _extract_pdf_pages_bytes(file_bytes: bytes, max_workers: int = 4) -> str:
+    """
+    Extract text and markdown tables from PDF bytes using pdfplumber.
+    Parallelizes per-page processing using ThreadPoolExecutor (I/O-bound).
+    Returns raw concatenated content string.
+    """
+    content_text = ""
+    try:
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            pages = list(pdf.pages)
+
+            def process_page(page):
+                page_content = ""
+                try:
+                    tables = page.extract_tables()
+                    if tables:
+                        for table in tables:
+                            md_table = convert_table_to_markdown(table)
+                            page_content += f"\n\n{md_table}\n\n"
+                    text = page.extract_text() or ""
+                    page_content += text + "\n"
+                except Exception as e:
+                    # log and continue
+                    print("Page extraction error:", e)
+                return page_content
+
+            workers = min(max_workers, max(1, len(pages)))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                results = list(ex.map(process_page, pages))
+            content_text = "\n".join(results)
+    except Exception as e:
+        print("Fatal PDF extraction error:", e)
+        raise
+    return content_text
+
+
+# ========================================================================
+# Background processing:
+# - perform LLM-based cleaning (using rag.smart_clean_text)
+# - update document content and updatedAt
+# - trigger RAG indexing detached (non-blocking)
+#
+# We keep features (delete/edit/toggle) unchanged; background process only
+# updates content/is_sync and triggers indexing.
+# ========================================================================
+def _run_mainrag_detached():
+    try:
+        importlib.reload(rag)
+        rag.mainrag()
+    except Exception as e:
+        print("Detached mainrag error:", e)
+
+
+def background_process_document(inserted_id):
+    """
+    Background job that:
+      - Loads the raw content of the inserted document
+      - Optionally does pre-clean (if rag.pre_clean_local exists)
+      - Runs rag.smart_clean_text to produce cleaned markdown
+      - Updates the Mongo document with cleaned content and updatedAt
+      - Triggers rag.mainrag in a detached process (does not block)
+    """
+    try:
+        start_all = time.time()
+        mongo_uri = os.getenv("MONGO_URI")
+        db_name = os.getenv("MONGO_DB_NAME")
+        if not mongo_uri or not db_name:
+            print("Missing MONGO_URI / MONGO_DB_NAME - cannot run background job.")
+            return
+
+        client = MongoClient(mongo_uri)
+        db = client[db_name]
+        collection = db["knowledgebase"]
+
+        # find document - handle both ObjectId and str
+        query_id = inserted_id
+        try:
+            if isinstance(inserted_id, str):
+                query_id = ObjectId(inserted_id)
+        except Exception:
+            # keep inserted_id as-is if conversion fails
+            pass
+
+        doc = collection.find_one({"_id": query_id})
+        if not doc:
+            # fallback: try string match (in case _id stored as string)
+            doc = collection.find_one({"_id": str(inserted_id)})
+        if not doc:
+            print(f"[background] Document not found: {inserted_id}")
+            client.close()
+            return
+
+        raw_content = doc.get("content", "") or ""
+
+        # Optional local pre-clean (fast)
+        try:
+            if hasattr(rag, "pre_clean_local"):
+                pre_cleaned = rag.pre_clean_local(raw_content)
+            else:
+                pre_cleaned = raw_content
+        except Exception as e:
+            print("pre_clean_local error:", e)
+            pre_cleaned = raw_content
+
+        # Run heavy LLM cleaning (this may take time)
+        cleaned_final = pre_cleaned
+        try:
+            t0 = time.time()
+            cleaned_final = rag.smart_clean_text(pre_cleaned)
+            t1 = time.time()
+            print(f"[background] LLM cleaning duration: {(t1 - t0):.2f}s")
+        except Exception as e:
+            print("LLM cleaning failed, keeping pre-cleaned content:", e)
+
+        # Update document (content + updatedAt) and mark is_sync False (will be set true by mainrag when indexing)
+        try:
+            collection.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {"content": cleaned_final, "is_sync": False, "updatedAt": datetime.now().isoformat()}},
+            )
+            print(f"[background] Updated DB doc: {str(doc.get('_id'))}")
+        except Exception as e:
+            print("DB update error in background:", e)
+
+        client.close()
+
+        # Trigger RAG indexing in detached process (non-blocking)
+        try:
+            p = multiprocessing.Process(target=_run_mainrag_detached)
+            p.daemon = True
+            p.start()
+            print(f"[background] Launched detached RAG process pid={p.pid}")
+        except Exception as e:
+            print("Failed to start detached RAG process:", e)
+
+        print(f"[background] Background processing finished in {(time.time() - start_all):.2f}s")
+    except Exception as exc:
+        print("Exception in background_process_document:", exc)
+        traceback.print_exc()
+
+
+# ========================================================================
+# WebSocket endpoint (unchanged, still uses rag.ask)
+# ========================================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print(f"🔌 Client Connected: {websocket.client}")
-    
+
     try:
         while True:
-            # 1. Terima Pesan
             raw_data = await websocket.receive_text()
-            
+
             try:
                 payload = json.loads(raw_data)
                 message = payload.get("message", "")
             except json.JSONDecodeError:
                 message = raw_data
 
-            if not message: continue
+            if not message:
+                continue
 
             print(f"📩 Received (WS): {message}")
 
-            # 2. Proses RAG (Non-blocking)
+            # Call rag.ask in a thread to avoid blocking event loop
             reply_text = await asyncio.to_thread(rag.ask, message, [])
 
-            # 3. Kirim Balasan
             response_data = {"Reply": reply_text}
             await websocket.send_json(response_data)
-            
+
             await asyncio.to_thread(gc.collect)
 
     except WebSocketDisconnect:
         print(f"🔌 Client Disconnected: {websocket.client}")
     except Exception as e:
         print(f"⚠️ WebSocket Error: {e}")
-        try: await websocket.close()
-        except: pass
+        try:
+            await websocket.close()
+        except:
+            pass
 
-# ==============================================================================
-# 2. HTTP ENDPOINTS (UPLOAD & ADMIN)
-# ==============================================================================
 
+# ========================================================================
+# HTTP endpoints (reply unchanged)
+# ========================================================================
 @app.post("/reply")
 async def reply_http(req: Request):
     """Fallback HTTP jika client belum support WS"""
@@ -117,127 +268,140 @@ async def reply_http(req: Request):
     except Exception as e:
         return {"Reply": f"Error: {str(e)}"}
 
+
+# ========================================================================
+# Upload endpoint: fast response + background processing
+# - extracts PDF/TXT (parallel where applicable)
+# - saves extracted (pre-cleaned) content to Mongo immediately
+# - schedules background task to run heavy LLM cleaning + indexing
+# ========================================================================
 @app.post("/api/upload-knowledge")
 async def upload_knowledge(
     file: UploadFile = File(...),
     topic: str = Form(...),
-    category: str = Form(...)
+    category: str = Form(...),
+    background_tasks: BackgroundTasks = None,
 ):
     print(f"📂 Upload: {file.filename}")
+    start_total = time.time()
     try:
-        content_text = ""
         file_content = await file.read()
-        
-        # 1. Ekstrak PDF dengan PDFPLUMBER (Lebih jago Tabel)
-        if file.filename.lower().endswith('.pdf'):
+        content_text = ""
+
+        # Extract PDF (parallel per page) or TXT
+        if file.filename.lower().endswith(".pdf"):
             try:
-                # Membuka PDF dari memory
-                with pdfplumber.open(io.BytesIO(file_content)) as pdf:
-                    for i, page in enumerate(pdf.pages):
-                        page_content = ""
-                        
-                        # A. Coba Ekstrak Tabel Dulu
-                        tables = page.extract_tables()
-                        if tables:
-                            print(f"   📄 Page {i+1}: Found {len(tables)} tables.")
-                            for table in tables:
-                                # Konversi ke Markdown Table biar AI paham
-                                md_table = convert_table_to_markdown(table)
-                                page_content += f"\n\n{md_table}\n\n"
-                        
-                        # B. Ambil Teks Biasa (untuk narasi)
-                        text = page.extract_text()
-                        if text:
-                            page_content += text + "\n"
-                        
-                        content_text += page_content
-                        
+                t0 = time.time()
+                # run CPU/IO extraction in a thread to avoid blocking event loop
+                content_text = await asyncio.to_thread(_extract_pdf_pages_bytes, file_content, 4)
+                t1 = time.time()
+                print(f"[upload] PDF extraction duration: {(t1 - t0):.2f}s")
             except Exception as e:
                 print(f"❌ PDFPlumber Error: {e}")
                 raise HTTPException(status_code=400, detail=f"Bad PDF: {str(e)}")
-                
-        elif file.filename.lower().endswith('.txt'):
-            content_text = file_content.decode('utf-8', errors='ignore')
+        elif file.filename.lower().endswith(".txt"):
+            content_text = file_content.decode("utf-8", errors="ignore")
         else:
             raise HTTPException(status_code=400, detail="Only PDF/TXT allowed")
 
         if not content_text.strip():
-             raise HTTPException(status_code=400, detail="Empty content")
+            raise HTTPException(status_code=400, detail="Empty content")
 
-        # 2. Smart Formatting (AI)
-        # AI sekarang menerima input yang sudah ada tabel Markdown-nya
-        # Tugas AI tinggal merapikan sisanya.
-        print("🤖 AI Formatting...")
-        formatted_content = rag.smart_clean_text(content_text)
+        # Optional quick pre-clean before saving (to reduce noise quickly)
+        try:
+            if hasattr(rag, "pre_clean_local"):
+                content_text = rag.pre_clean_local(content_text)
+        except Exception as e:
+            print("pre_clean_local (upload) error:", e)
 
-        # 3. Simpan ke Mongo
+        # Save to Mongo immediately (content will be cleaned by background task)
         mongo_uri = os.getenv("MONGO_URI")
         db_name = os.getenv("MONGO_DB_NAME")
-        
+        if not mongo_uri or not db_name:
+            raise HTTPException(status_code=500, detail="Server misconfigured: missing Mongo settings")
+
         client = MongoClient(mongo_uri)
         db = client[db_name]
         collection = db["knowledgebase"]
-        
+
         new_doc = {
             "topic": topic,
             "category": category,
-            "content": formatted_content, 
+            "content": content_text,  # pre-cleaned raw content
             "status": "ACTIVE",
-            "is_sync": False, 
-            "updatedAt": datetime.now().isoformat()
+            "is_sync": False,
+            "createdAt": datetime.now().isoformat(),
+            "updatedAt": datetime.now().isoformat(),
         }
-        
-        result = collection.insert_one(new_doc)
-        client.close()
-        
-        # 4. Trigger Auto-Index
-        print("🔄 Auto-Indexing...")
-        importlib.reload(rag)
-        rag_process = multiprocessing.Process(target=rag.mainrag)
-        rag_process.start()
-        rag_process.join()
-        
-        if rag_process.exitcode == 0:
-             return {
-                "message": "Sukses! Tabel PDF berhasil dikonversi & disimpan.",
-                "data": {"_id": str(result.inserted_id), "topic": topic}
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Indexing Failed")
 
+        result = collection.insert_one(new_doc)
+        inserted_id = result.inserted_id
+        client.close()
+
+        # Schedule background processing (heavy LLM cleaning + indexing)
+        if background_tasks is not None:
+            background_tasks.add_task(background_process_document, inserted_id)
+            print(f"[upload] Scheduled background task for doc {inserted_id}")
+        else:
+            # Fallback: spawn process (detached) to run background work
+            p = multiprocessing.Process(target=background_process_document, args=(inserted_id,))
+            p.daemon = True
+            p.start()
+            print(f"[upload] Spawned process for background processing pid={p.pid}")
+
+        elapsed = time.time() - start_total
+        return {
+            "message": "Sukses! Dokumen disimpan. Background cleaning & indexing dijalankan.",
+            "data": {"_id": str(inserted_id), "topic": topic, "uploadDurationSec": elapsed},
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Upload Error: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ========================================================================
+# Manual RAG trigger - run in detached process and return immediately
+# ========================================================================
 @app.get("/do-rag")
 def do_rag_route():
-    """Manual Re-Index"""
+    """Manual Re-Index (runs in background process to avoid blocking server)"""
     print("🔄 Manual RAG Triggered...")
     try:
-        importlib.reload(rag)
-        rag_process = multiprocessing.Process(target=rag.mainrag)
-        rag_process.start()
-        rag_process.join()
-        
-        if rag_process.exitcode == 0:
-            return {"Status": "Success", "Message": "RAG Re-indexed from MongoDB"}
-        else:
-            return {"Status": "Error", "Message": "RAG Process Failed"}
+        p = multiprocessing.Process(target=_run_mainrag_detached)
+        p.daemon = True
+        p.start()
+        return {"Status": "Started", "Message": "RAG Re-indexing started in background", "pid": p.pid}
     except Exception as e:
         return {"Status": "Error", "Message": str(e)}
 
+
+# ========================================================================
+# Utility endpoints
+# ========================================================================
 @app.get("/clear-cache")
 def clear_cache():
-    rag.force_cleanup_chroma()
-    return {"Status": "Cache cleared"}
+    try:
+        rag.force_cleanup_chroma()
+        return {"Status": "Cache cleared"}
+    except Exception as e:
+        return {"Status": "Error", "Message": str(e)}
+
 
 @app.get("/reset-memory")
 def reset_memory_route():
-    rag.reset_memory()
-    return {"Status": "Memory reset"}
+    try:
+        rag.reset_memory()
+        return {"Status": "Memory reset"}
+    except Exception as e:
+        return {"Status": "Error", "Message": str(e)}
+
 
 if __name__ == "__main__":
     import uvicorn
-    multiprocessing.set_start_method('spawn', force=True)
+
+    multiprocessing.set_start_method("spawn", force=True)
     print("🚀 Starting Server (WS Port 8080)...")
     uvicorn.run(app, host="127.0.0.1", port=8080)
