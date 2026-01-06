@@ -1,5 +1,6 @@
-// Admin/knowledge-view.tsx
+// src/app/Admin/knowledge-view.tsx
 'use client';
+
 import { useState, useEffect, useMemo } from 'react';
 import {
   DatabaseZap,
@@ -17,14 +18,16 @@ import {
   Loader2,
   BookOpen,
   X,
-  // --- IMPORT BARU ---
   Cloud,
   CloudOff,
   AlertCircle
 } from 'lucide-react';
 import CreatableSelect from 'react-select/creatable';
-
 import { toast } from 'sonner';
+
+// --- LIBRARY UNTUK RENDER MARKDOWN & TABEL ---
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // ===== INTERFACES =====
 interface KnowledgeItem {
@@ -33,7 +36,7 @@ interface KnowledgeItem {
   content: string;
   category: string;
   status: 'ACTIVE' | 'INACTIVE';
-  is_sync: boolean; // <--- FIELD BARU
+  is_sync: boolean;
   updatedAt: string;
 }
 
@@ -78,7 +81,63 @@ interface KnowledgeDetailPanelProps {
 
 // ===== COMPONENTS HELPER =====
 
-// 1. Komponen Modal Panduan Markdown
+// 1. Komponen Markdown Renderer (Untuk Menampilkan Tabel & Format Rapi)
+const MarkdownRenderer = ({ content }: { content: string }) => {
+  return (
+    <div className="prose prose-sm dark:prose-invert max-w-none text-gray-800 dark:text-gray-200">
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Custom Styling untuk Tabel
+          table: ({ ...props}) => (
+            <div className="overflow-x-auto my-4 border border-gray-200 dark:border-neutral-700 rounded-lg shadow-sm">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-neutral-700 text-sm" {...props} />
+            </div>
+          ),
+          thead: ({ ...props}) => (
+            <thead className="bg-gray-50 dark:bg-neutral-800" {...props} />
+          ),
+          th: ({ ...props}) => (
+            <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-neutral-700" {...props} />
+          ),
+          tbody: ({ ...props}) => (
+            <tbody className="bg-white dark:bg-neutral-900 divide-y divide-gray-200 dark:divide-neutral-800" {...props} />
+          ),
+          tr: ({ ...props}) => (
+            <tr className="hover:bg-gray-50 dark:hover:bg-neutral-800/50 transition-colors" {...props} />
+          ),
+          td: ({ ...props}) => (
+            <td className="px-4 py-3 whitespace-nowrap text-gray-700 dark:text-gray-300 border-r last:border-r-0 border-gray-100 dark:border-neutral-800" {...props} />
+          ),
+          // Custom Styling untuk List
+          ul: ({ ...props}) => (
+            <ul className="list-disc pl-5 space-y-1 my-2 text-gray-800 dark:text-gray-200" {...props} />
+          ),
+          ol: ({ ...props}) => (
+            <ol className="list-decimal pl-5 space-y-1 my-2 text-gray-800 dark:text-gray-200" {...props} />
+          ),
+          li: ({ ...props}) => (
+            <li className="pl-1" {...props} />
+          ),
+          // Custom Styling untuk Heading
+          h1: ({ ...props}) => <h1 className="text-2xl font-bold mt-6 mb-4" {...props} />,
+          h2: ({ ...props}) => <h2 className="text-xl font-bold mt-5 mb-3 border-b pb-2" {...props} />,
+          h3: ({ ...props}) => <h3 className="text-lg font-semibold mt-4 mb-2" {...props} />,
+          // Styling untuk Bold/Strong
+          strong: ({ ...props}) => (
+            <span className="font-bold text-gray-900 dark:text-white" {...props} />
+          ),
+          // Styling Paragraph
+          p: ({ ...props}) => <p className="mb-3 leading-relaxed" {...props} />,
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+};
+
+// 2. Komponen Modal Panduan Markdown
 const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
   <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity'>
     <div className='bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-neutral-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200'>
@@ -93,7 +152,7 @@ const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
               Panduan Format Teks
             </h3>
             <p className='text-xs text-gray-500 dark:text-neutral-400'>
-              Cheat sheet penulisan Markdown
+              Cheat sheet penulisan Markdown & Tabel
             </p>
           </div>
         </div>
@@ -113,9 +172,26 @@ const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
             <div className='w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5'></div>
           </div>
           <div className='text-sm text-blue-800 dark:text-blue-200 leading-relaxed'>
-            <span className='font-semibold block mb-1'>Tips Penting:</span>
-            Agar chatbot dapat membaca format dengan rapi, pastikan Anda
-            mengikuti simbol-simbol di bawah ini.
+            <span className='font-semibold block mb-1'>Fitur Tabel Otomatis:</span>
+            Sistem RAG akan otomatis mengubah tabel PDF menjadi format Markdown seperti di bawah ini. Anda juga bisa membuatnya manual.
+          </div>
+        </div>
+
+        {/* Tabel Section */}
+        <div>
+          <h4 className='text-xs font-bold text-gray-500 dark:text-neutral-500 uppercase tracking-wider mb-4 border-b border-gray-100 dark:border-neutral-800 pb-2'>
+            Membuat Tabel
+          </h4>
+          <div className='space-y-3 text-sm'>
+            <div className='bg-gray-100 dark:bg-neutral-800 p-3 rounded-lg text-xs font-mono text-gray-800 dark:text-neutral-200 border border-gray-200 dark:border-neutral-700 overflow-x-auto'>
+              | No | Mata Kuliah | SKS |<br/>
+              |----|-------------|-----|<br/>
+              | 1  | Algoritma   | 3   |<br/>
+              | 2  | Basis Data  | 4   |
+            </div>
+            <p className="text-gray-600 dark:text-neutral-400 text-xs">
+              Gunakan tanda pipa <code>|</code> untuk memisahkan kolom dan tanda <code>-</code> untuk garis header.
+            </p>
           </div>
         </div>
 
@@ -125,109 +201,14 @@ const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
             Gaya Teks
           </h4>
           <div className='grid grid-cols-2 gap-x-6 gap-y-4 text-sm'>
-            {/* Header Kolom */}
-            <div className='text-xs font-medium text-gray-400 dark:text-neutral-500 mb-[-8px]'>
-              Ketik Ini (Input)
-            </div>
-            <div className='text-xs font-medium text-gray-400 dark:text-neutral-500 mb-[-8px]'>
-              Hasil Tampilan
-            </div>
+            <div className='text-xs font-medium text-gray-400 dark:text-neutral-500 mb-[-8px]'>Ketik Ini</div>
+            <div className='text-xs font-medium text-gray-400 dark:text-neutral-500 mb-[-8px]'>Hasil</div>
 
-            {/* Baris 1: Bold */}
-            <code className='bg-gray-100 dark:bg-neutral-800 px-3 py-2 rounded-lg text-gray-800 dark:text-neutral-200 font-mono border border-gray-200 dark:border-neutral-700 flex items-center'>
-              **Teks Tebal**
-            </code>
-            <div className='flex items-center px-3 py-2 text-gray-900 dark:text-white font-bold bg-gray-50/50 dark:bg-neutral-800/30 rounded-lg border border-transparent'>
-              Teks Tebal
-            </div>
+            <code className='bg-gray-100 dark:bg-neutral-800 px-3 py-2 rounded-lg text-gray-800 dark:text-neutral-200 font-mono border border-gray-200 dark:border-neutral-700 flex items-center'>**Teks Tebal**</code>
+            <div className='flex items-center px-3 py-2 text-gray-900 dark:text-white font-bold bg-gray-50/50 dark:bg-neutral-800/30 rounded-lg border border-transparent'>Teks Tebal</div>
 
-            {/* Baris 2: Italic */}
-            <code className='bg-gray-100 dark:bg-neutral-800 px-3 py-2 rounded-lg text-gray-800 dark:text-neutral-200 font-mono border border-gray-200 dark:border-neutral-700 flex items-center'>
-              *Teks Miring*
-            </code>
-            <div className='flex items-center px-3 py-2 text-gray-900 dark:text-white italic bg-gray-50/50 dark:bg-neutral-800/30 rounded-lg border border-transparent'>
-              Teks Miring
-            </div>
-          </div>
-        </div>
-
-        {/* Paragraf Section */}
-        <div>
-          <h4 className='text-xs font-bold text-gray-500 dark:text-neutral-500 uppercase tracking-wider mb-4 border-b border-gray-100 dark:border-neutral-800 pb-2'>
-            Paragraf & Baris Baru
-          </h4>
-          <div className='space-y-3 text-sm text-gray-600 dark:text-neutral-300'>
-            <p>
-              Untuk membuat{' '}
-              <span className='font-semibold text-gray-900 dark:text-white'>
-                Paragraf Baru
-              </span>
-              , tekan tombol{' '}
-              <kbd className='px-1.5 py-0.5 rounded bg-gray-200 dark:bg-neutral-700 text-gray-800 dark:text-white font-mono text-xs border border-gray-300 dark:border-neutral-600'>
-                Enter
-              </kbd>{' '}
-              sebanyak{' '}
-              <span className='font-bold text-blue-600 dark:text-blue-400'>
-                2 kali
-              </span>
-              .
-            </p>
-
-            {/* Visualisasi Enter */}
-            <div className='bg-gray-50 dark:bg-neutral-950 p-4 rounded-xl border border-dashed border-gray-300 dark:border-neutral-700 font-mono text-xs leading-relaxed text-gray-500 dark:text-neutral-500 relative'>
-              <span className='text-gray-900 dark:text-white'>
-                Paragraf pertama disini.
-              </span>
-              <div className='flex items-center gap-2 my-1 opacity-40'>
-                <CornerDownLeft className='w-3 h-3' />{' '}
-                <span className='italic text-[10px]'>
-                  (Enter 1: Baris kosong)
-                </span>
-              </div>
-              <div className='flex items-center gap-2 mb-1 opacity-40'>
-                <CornerDownLeft className='w-3 h-3' />{' '}
-                <span className='italic text-[10px]'>
-                  (Enter 2: Mulai baru)
-                </span>
-              </div>
-              <span className='text-gray-900 dark:text-white'>
-                Paragraf kedua dimulai disini.
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* List Section */}
-        <div>
-          <h4 className='text-xs font-bold text-gray-500 dark:text-neutral-500 uppercase tracking-wider mb-4 border-b border-gray-100 dark:border-neutral-800 pb-2'>
-            Daftar (List)
-          </h4>
-          <div className='grid grid-cols-2 gap-4'>
-            {/* Simbol */}
-            <div className='space-y-2'>
-              <span className='text-xs font-medium text-gray-500 dark:text-neutral-400 block text-center'>
-                List Simbol
-              </span>
-              <div className='bg-gray-100 dark:bg-neutral-800 p-3 rounded-lg text-xs font-mono text-gray-800 dark:text-neutral-200 border border-gray-200 dark:border-neutral-700'>
-                - Poin satu
-                <br />
-                - Poin dua
-                <br />- Poin tiga
-              </div>
-            </div>
-            {/* Angka */}
-            <div className='space-y-2'>
-              <span className='text-xs font-medium text-gray-500 dark:text-neutral-400 block text-center'>
-                List Angka
-              </span>
-              <div className='bg-gray-100 dark:bg-neutral-800 p-3 rounded-lg text-xs font-mono text-gray-800 dark:text-neutral-200 border border-gray-200 dark:border-neutral-700'>
-                1. Pertama
-                <br />
-                2. Kedua
-                <br />
-                3. Ketiga
-              </div>
-            </div>
+            <code className='bg-gray-100 dark:bg-neutral-800 px-3 py-2 rounded-lg text-gray-800 dark:text-neutral-200 font-mono border border-gray-200 dark:border-neutral-700 flex items-center'>*Teks Miring*</code>
+            <div className='flex items-center px-3 py-2 text-gray-900 dark:text-white italic bg-gray-50/50 dark:bg-neutral-800/30 rounded-lg border border-transparent'>Teks Miring</div>
           </div>
         </div>
       </div>
@@ -245,7 +226,7 @@ const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
   </div>
 );
 
-// 2. Komponen Input Field Helper
+// 3. Komponen Input Field Helper (Updated with Markdown Support)
 const InputField = ({
   label,
   name,
@@ -255,6 +236,7 @@ const InputField = ({
   type = 'text',
   rows = 5,
   placeholder,
+  useMarkdown = false, // Props baru
 }: {
   label: string;
   name: string;
@@ -266,6 +248,7 @@ const InputField = ({
   type?: string;
   rows?: number;
   placeholder?: string;
+  useMarkdown?: boolean;
 }) => (
   <div className='mb-4'>
     <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1'>
@@ -292,8 +275,12 @@ const InputField = ({
         />
       )
     ) : (
-      <div className='bg-gray-50 dark:bg-neutral-800/50 p-4 rounded-lg text-sm whitespace-pre-wrap leading-relaxed border border-gray-200 dark:border-neutral-800 text-gray-800 dark:text-gray-200'>
-        {value}
+      <div className='bg-gray-50 dark:bg-neutral-800/50 p-4 rounded-lg text-sm leading-relaxed border border-gray-200 dark:border-neutral-800 text-gray-800 dark:text-gray-200 overflow-x-auto'>
+        {useMarkdown ? (
+          <MarkdownRenderer content={value} />
+        ) : (
+          <span className="whitespace-pre-wrap">{value}</span>
+        )}
       </div>
     )}
   </div>
@@ -312,8 +299,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-
-  // ===== FETCH DATA (Modified to handle silent updates) =====
+  // ===== FETCH DATA =====
   const fetchKnowledgeItems = useMemo(
     () =>
       async (silent = false) => {
@@ -363,53 +349,47 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     )).join('\n');
 
     const blob = new Blob([content], { type: 'text/plain' });
-    
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
-    
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     link.href = url;
     link.download = `knowledge-backup-${timestamp}.txt`;
     
     document.body.appendChild(link);
     link.click();
-    
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
   };
 
-  // Di dalam knowledge-view.tsx
-const handleUpdateRag = async () => {
-  // --- TAMBAHKAN LOGIKA UNDUH DI SINI ---
-  if (knowledgeItems.length > 0) {
-    downloadKnowledgeAsTxt(knowledgeItems);
-  } else {
-    toast.error("Tidak ada data untuk diunduh.");
-    return;
-  }
-  // --------------------------------------
+  const handleUpdateRag = async () => {
+    if (knowledgeItems.length > 0) {
+      downloadKnowledgeAsTxt(knowledgeItems);
+    } else {
+      toast.error("Tidak ada data untuk diunduh.");
+      return;
+    }
 
-  setIsLoading((prev) => ({ ...prev, rag: true }));
-  try {
-    const res = await fetch('http://localhost:8080/do-rag'); // Panggilan ke server AI
-    if (!res.ok) throw new Error('Proses RAG gagal di server AI.');
-    
-    const data: RagUpdateResponse = await res.json();
-    await fetchKnowledgeItems(true); // Refresh list
+    setIsLoading((prev) => ({ ...prev, rag: true }));
+    try {
+      const res = await fetch('http://localhost:8080/do-rag');
+      if (!res.ok) throw new Error('Proses RAG gagal di server AI.');
+      
+      const data: RagUpdateResponse = await res.json();
+      await fetchKnowledgeItems(true);
 
-    toast.success('Update RAG Selesai & Data Berhasil Diunduh', {
-      description: data.Message || 'Proses berhasil.',
-    });
-  } catch (err) {
-    toast.error('Error saat update RAG', {
-      description: err instanceof Error ? err.message : 'Terjadi kesalahan.',
-    });
-  } finally {
-    setIsLoading((prev) => ({ ...prev, rag: false }));
-  }
-};
+      toast.success('Update RAG Selesai & Data Berhasil Diunduh', {
+        description: data.Message || 'Proses berhasil.',
+      });
+    } catch (err) {
+      toast.error('Error saat update RAG', {
+        description: err instanceof Error ? err.message : 'Terjadi kesalahan.',
+      });
+    } finally {
+      setIsLoading((prev) => ({ ...prev, rag: false }));
+    }
+  };
 
-  // ===== SAVE ITEM (Updated) =====
+  // ===== SAVE ITEM =====
   const handleSaveItem = async (
     formData: Omit<KnowledgeItem, '_id' | 'updatedAt' | 'is_sync'>,
     isNew: boolean
@@ -433,11 +413,9 @@ const handleUpdateRag = async () => {
       }
       
       const { data: savedItem }: SingleKnowledgeResponse = await res.json();
-      
       await fetchKnowledgeItems(true); 
 
       setSelectedItem(savedItem);
-      
       toast.success(
         `Item "${savedItem.topic}" berhasil ${isNew ? 'dibuat' : 'diperbarui'}.`
       );
@@ -453,7 +431,7 @@ const handleUpdateRag = async () => {
     }
   };
 
-  // ===== TOGGLE STATUS (Updated) =====
+  // ===== TOGGLE STATUS =====
   const handleToggleStatus = async (id: string) => {
     try {
       const res = await fetch(
@@ -463,7 +441,6 @@ const handleUpdateRag = async () => {
       if (!res.ok) throw new Error('Gagal mengubah status.');
       
       const { data: updatedItem }: SingleKnowledgeResponse = await res.json();
-      
       await fetchKnowledgeItems(true);
       
       setSelectedItem(updatedItem);
@@ -479,7 +456,7 @@ const handleUpdateRag = async () => {
     }
   };
 
-  // ===== DELETE ITEM (Updated) =====
+  // ===== DELETE ITEM =====
   const executeDeleteItem = async (id: string) => {
     try {
       const res = await fetch(`http://localhost:5000/api/knowledge/${id}`, {
@@ -503,10 +480,7 @@ const handleUpdateRag = async () => {
   };
 
   const handleDeleteItem = (id: string) => {
-    // Ambil data item yang sedang dipilih
     if (!selectedItem) return;
-
-    // PENGECEKAN CLIENT-SIDE
     if (selectedItem.status !== 'INACTIVE' || !selectedItem.is_sync) {
       toast.error('Tidak Dapat Menghapus', {
         description: 'Item harus dinonaktifkan (INACTIVE) dan disinkronkan (Update RAG) terlebih dahulu sebelum dihapus.',
@@ -514,7 +488,6 @@ const handleUpdateRag = async () => {
       return;
     }
 
-    // Jika syarat terpenuhi, tampilkan konfirmasi hapus
     toast('Konfirmasi Hapus', {
       description: `Yakin ingin menghapus "${selectedItem.topic}" secara permanen?`,
       action: {
@@ -630,7 +603,7 @@ const handleUpdateRag = async () => {
       {/* MAIN CONTENT */}
       <section className='grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10 flex-1 pb-3'>
         {/* LIST */}
-        <div className='lg:col-span-1 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[600px] flex flex-col overflow-hidden'>
+        <div className='lg:col-span-1 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[900px] flex flex-col overflow-hidden'>
           <div className='p-4 border-b border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-900/50'>
             <h2 className='text-sm font-semibold flex items-center mb-3 gap-2 text-gray-700 dark:text-gray-200 uppercase tracking-wider'>
               <FileText className='w-4 h-4' /> Knowledge List
@@ -668,16 +641,14 @@ const handleUpdateRag = async () => {
                     <p className='font-bold text-gray-900 dark:text-white text-sm truncate w-[70%]'>
                       {item.topic}
                     </p>
-                    {/* --- STATUS ICONS DI LIST --- */}
+                    {/* STATUS ICONS */}
                     <div className="flex items-center gap-1.5">
-                      {/* Sync Icon */}
                       {item.is_sync ? (
                         <Cloud className='w-3.5 h-3.5 text-blue-500' />
                       ) : (
                         <CloudOff className='w-3.5 h-3.5 text-orange-500' />
                       )}
                       
-                      {/* Active Icon */}
                       {item.status === 'ACTIVE' ? (
                         <CheckCircle className='w-4 h-4 text-green-500' />
                       ) : (
@@ -707,7 +678,7 @@ const handleUpdateRag = async () => {
         </div>
 
         {/* DETAIL PANEL */}
-        <div className='lg:col-span-2 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[600px] flex flex-col overflow-hidden'>
+        <div className='lg:col-span-2 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[900px] flex flex-col overflow-hidden'>
           <KnowledgeDetailPanel
             item={selectedItem}
             mode={mode}
@@ -746,12 +717,10 @@ function KnowledgeDetailPanel({
   const isEditing = mode === 'edit';
   const [formData, setFormData] = useState(initialFormData);
   const [showGuide, setShowGuide] = useState(false);
-  
-  // STATE BARU: Untuk menyimpan opsi kategori
   const [categoryOptions, setCategoryOptions] = useState<{label: string, value: string}[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
 
-  // FETCH KATEGORI SAAT MODE EDIT/ADD
+  // FETCH KATEGORI
   useEffect(() => {
     if (isAdding || isEditing) {
       setIsLoadingCategories(true);
@@ -759,7 +728,6 @@ function KnowledgeDetailPanel({
         .then(res => res.json())
         .then(json => {
           if (!json.error && json.data) {
-            // Tentukan tipe parameter cat secara eksplisit
             const options = json.data.map((cat: { name: string }) => ({
               label: cat.name,
               value: cat.name
@@ -792,7 +760,6 @@ function KnowledgeDetailPanel({
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // HANDLER KHUSUS UNTUK CATEGORY SELECT
   const handleCategoryChange = (newValue: CategoryOption | null) => {
     setFormData(prev => ({ 
       ...prev, 
@@ -805,7 +772,6 @@ function KnowledgeDetailPanel({
       toast.warning('Judul, Konten, dan Kategori tidak boleh kosong.');
       return;
     }
-    // is_sync tidak dikirim saat save, dihandle backend
     onSave(formData, isAdding);
   };
 
@@ -820,7 +786,6 @@ function KnowledgeDetailPanel({
     );
   }
 
-  // 5. Render Form Utama
   return (
     <>
       {showGuide && <MarkdownGuideModal onClose={() => setShowGuide(false)} />}
@@ -921,7 +886,6 @@ function KnowledgeDetailPanel({
           {/* A. BADGES INFO (Status & Sync) */}
           {!isAdding && item && (
             <div className="flex flex-wrap gap-3 mb-4">
-              {/* Status Badge */}
               <div
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
                   item.status === 'ACTIVE'
@@ -937,7 +901,6 @@ function KnowledgeDetailPanel({
                 <span>Status: {item.status === 'ACTIVE' ? 'Aktif' : 'Tidak Aktif'}</span>
               </div>
 
-              {/* Sync Badge */}
               <div
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
                   item.is_sync
@@ -984,8 +947,6 @@ function KnowledgeDetailPanel({
                   options={categoryOptions}
                   value={formData.category ? { label: formData.category, value: formData.category } : null}
                   placeholder="Pilih atau Ketik Kategori Baru..."
-                  
-                  // --- PERUBAHAN DI SINI: MENGGUNAKAN classNames + Tailwind ---
                   classNames={{
                     control: (state) =>
                       `!bg-white dark:!bg-neutral-950 !border-gray-200 dark:!border-neutral-700 !rounded-lg !text-sm !shadow-none !p-1.5 ${
@@ -1011,7 +972,7 @@ function KnowledgeDetailPanel({
               )}
             </div>
 
-            {/* D. KONTEN AREA */}
+            {/* D. KONTEN AREA (Dengan Markdown Support) */}
             <div className='relative'>
               <InputField
                 label='Konten Pengetahuan'
@@ -1022,6 +983,7 @@ function KnowledgeDetailPanel({
                 type='textarea'
                 rows={15}
                 placeholder='Gunakan format Markdown: **Tebal**, - Poin, dsb.'
+                useMarkdown={true} // Aktifkan Markdown Renderer
               />
               {(isAdding || isEditing) && (
                 <div className='text-xs text-gray-500 dark:text-gray-400 mt-1 flex justify-end'>

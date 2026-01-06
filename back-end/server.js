@@ -8,18 +8,19 @@ const bodyParser = require('body-parser');
 const axios = require('axios');
 const routes = require('./routes/routes');
 
-
 const app = express();
 
 // ========================
-// MIDDLEWARE DASAR
+// MIDDLEWARE DASAR (DIPERBAIKI)
 // ========================
 app.use(cors({
-  origin: true, // atau ['http://localhost:3000']
+  origin: true, 
   credentials: true
 }));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+
+// --- PERBAIKAN DI SINI: MENAMBAHKAN LIMIT 50MB ---
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // ========================
 // KONEKSI MONGODB

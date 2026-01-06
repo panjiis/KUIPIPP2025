@@ -16,15 +16,18 @@ import {
   Settings, // Icon Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+// --- LIBRARY MARKDOWN & HTML PARSER ---
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw'; // <--- PLUGIN PENTING UNTUK RENDER HTML
 
 // --- IMPORT SUB-VIEWS ---
 // Pastikan file-file ini ada di folder yang sama (Admin/)
 import KnowledgeView from './knowledge-view';
-import ManageAdminView from './manage-admin-view'; // Sudah diupdate dari CreateAdminView
+import ManageAdminView from './manage-admin-view';
 import RagDetailView from './rag-detail-view';
-import SettingsView from './settings-view'; // View baru untuk ganti password sendiri
+import SettingsView from './settings-view'; 
 
 // --- INTERFACES ---
 interface ChatSession {
@@ -64,7 +67,12 @@ interface DeleteOldChatsResponse {
 }
 
 // Tipe untuk Navigasi
-type ActiveView = 'history' | 'knowledge' | 'manageAdmin' | 'ragUpload' | 'settings';
+type ActiveView =
+  | 'history'
+  | 'knowledge'
+  | 'manageAdmin'
+  | 'ragUpload'
+  | 'settings';
 
 // ============================================================================
 // KOMPONEN 1: SIDEBAR (Navigasi)
@@ -74,7 +82,7 @@ const AdminSidebar = ({
   onNavClick,
   onLogout,
   isLoggingOut,
-  userRole
+  userRole,
 }: {
   activeView: ActiveView;
   onNavClick: (view: ActiveView) => void;
@@ -86,16 +94,26 @@ const AdminSidebar = ({
 
   // Daftar Menu Dasar (Muncul untuk SEMUA Admin)
   const navItems = [
-    { view: 'history' as ActiveView, icon: MessageSquare, label: 'Chat History' },
-    { view: 'knowledge' as ActiveView, icon: DatabaseZap, label: 'Knowledge Base' },
-    { view: 'ragUpload' as ActiveView, icon: UploadCloud, label: 'Upload & Auto-RAG' },
+    {
+      view: 'history' as ActiveView,
+      icon: MessageSquare,
+      label: 'Chat History',
+    },
+    {
+      view: 'knowledge' as ActiveView,
+      icon: DatabaseZap,
+      label: 'Knowledge Base',
+    },
+    {
+      view: 'ragUpload' as ActiveView,
+      icon: UploadCloud,
+      label: 'Upload & Auto-RAG',
+    },
     { view: 'settings' as ActiveView, icon: Settings, label: 'Settings' },
   ];
 
   // LOGIC SUPER ADMIN: Tambahkan menu 'Manage Admin'
   if (userRole === 'SUPER_ADMIN') {
-    // Kita sisipkan sebelum Settings agar rapi, atau di mana saja sesuai selera
-    // Di sini saya taruh sebelum Settings
     navItems.splice(3, 0, {
       view: 'manageAdmin' as ActiveView,
       icon: UserPlus,
@@ -138,7 +156,9 @@ const AdminSidebar = ({
           >
             <item.icon
               className={`w-5 h-5 flex-shrink-0 ${
-                activeView === item.view ? 'text-blue-600 dark:text-blue-400' : ''
+                activeView === item.view
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : ''
               }`}
             />
             {isOpen && <span className='whitespace-nowrap'>{item.label}</span>}
@@ -215,20 +235,15 @@ const ChatHistoryView = () => {
 
   // 2. Select Conversation & Fetch Details
   const handleSelectConversation = async (chatId: string) => {
-    // Izinkan refresh klik jika ingin memastikan data terbaru, atau return jika id sama
-    // if (selectedConversation?._id === chatId) return; 
-    
     try {
       setDetailLoading(true);
-      // Reset dulu biar UI loading muncul
-      setSelectedConversation(null); 
-      
+      setSelectedConversation(null);
+
       const res = await fetch(
         `http://localhost:5000/api/admin/chats/history?chatId=${chatId}`,
         { credentials: 'include' }
       );
-      
-      // Jika error (misal chat kosong di db menyebabkan 404), kita handle agar tetap bisa dibuka
+
       let transformedMessages: Message[] = [];
       let status = 'UNKNOWN';
 
@@ -243,8 +258,7 @@ const ChatHistoryView = () => {
         );
         transformedMessages.reverse();
       } else {
-        // Opsional: Jika fetch error tapi kita ingin tetap membuka panel agar bisa dihapus
-        console.warn("Gagal fetch detail, mungkin chat kosong.");
+        console.warn('Gagal fetch detail, mungkin chat kosong.');
       }
 
       const currentChat = chatList.find((chat) => chat._id === chatId);
@@ -256,13 +270,12 @@ const ChatHistoryView = () => {
         messages: transformedMessages,
       });
     } catch (err) {
-      // Fallback: Tetap set selectedConversation meski kosong agar tombol hapus muncul di kanan
       setSelectedConversation({
         _id: chatId,
         status: 'ERROR',
         messages: [],
       });
-      
+
       if (err instanceof Error) {
         toast.error(`Gagal memuat detail: ${err.message}`);
       }
@@ -282,12 +295,11 @@ const ChatHistoryView = () => {
       if (!res.ok) throw new Error('Gagal menghapus chat.');
 
       setChatList((prev) => prev.filter((c) => c._id !== id));
-      
-      // Jika yang dihapus adalah yang sedang dibuka, tutup detail view
+
       if (selectedConversation?._id === id) {
         setSelectedConversation(null);
       }
-      
+
       toast.success('Percakapan berhasil dihapus.');
     } catch (err) {
       if (err instanceof Error) {
@@ -299,8 +311,12 @@ const ChatHistoryView = () => {
   };
 
   const handleDeleteChat = async (id: string) => {
-    if (confirm('Apakah Anda yakin ingin menghapus percakapan ini secara permanen?')) {
-        executeDeleteChat(id);
+    if (
+      confirm(
+        'Apakah Anda yakin ingin menghapus percakapan ini secara permanen?'
+      )
+    ) {
+      executeDeleteChat(id);
     }
   };
 
@@ -326,7 +342,7 @@ const ChatHistoryView = () => {
 
   const handleDeleteOldChats = async () => {
     if (confirm('Hapus semua chat lama (NONACTIVE > 7 hari)?')) {
-        executeDeleteOldChats();
+      executeDeleteOldChats();
     }
   };
 
@@ -358,10 +374,10 @@ const ChatHistoryView = () => {
       {/* Chat History Section */}
       <section className='grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1'>
         {/* List */}
-        <div className='lg:col-span-1 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[600px] flex flex-col overflow-hidden'>
+        <div className='lg:col-span-1 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[800px] flex flex-col overflow-hidden'>
           <div className='p-4 border-b border-gray-200 dark:border-neutral-800 bg-gray-50/50 dark:bg-neutral-900/50'>
             <h2 className='text-sm font-semibold flex items-center mb-3 gap-2 text-gray-700 dark:text-gray-200 uppercase tracking-wider'>
-              <MessageSquare className="w-4 h-4" /> Daftar Percakapan
+              <MessageSquare className='w-4 h-4' /> Daftar Percakapan
             </h2>
             <div className='relative'>
               <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400' />
@@ -381,7 +397,6 @@ const ChatHistoryView = () => {
               </div>
             ) : filteredConversations.length > 0 ? (
               filteredConversations.map((conv) => (
-                // PERBAIKAN: Ubah button menjadi div relative agar bisa menaruh tombol hapus di dalamnya
                 <div
                   key={conv._id}
                   className={`group relative w-full rounded-lg transition-all border ${
@@ -391,19 +406,21 @@ const ChatHistoryView = () => {
                   }`}
                 >
                   {/* Area Klik Utama untuk Select */}
-                  <div 
+                  <div
                     onClick={() => handleSelectConversation(conv._id)}
-                    className="p-3 cursor-pointer w-full text-left pr-10" // pr-10 beri ruang untuk tombol hapus
+                    className='p-3 cursor-pointer w-full text-left pr-10'
                   >
-                    <div className="flex justify-between items-start mb-1">
+                    <div className='flex justify-between items-start mb-1'>
                       <p className='font-mono text-xs text-gray-500 dark:text-gray-400 truncate w-24'>
                         {conv._id.substring(0, 8)}...
                       </p>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
-                        conv.status === 'ACTIVE' 
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
-                      }`}>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                          conv.status === 'ACTIVE'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                        }`}
+                      >
                         {conv.status}
                       </span>
                     </div>
@@ -412,19 +429,23 @@ const ChatHistoryView = () => {
                     </p>
                   </div>
 
-                  {/* Tombol Hapus (Muncul saat Hover atau Aktif) */}
+                  {/* Tombol Hapus */}
                   <button
                     onClick={(e) => {
-                        e.stopPropagation(); // Mencegah trigger select
-                        handleDeleteChat(conv._id);
+                      e.stopPropagation();
+                      handleDeleteChat(conv._id);
                     }}
                     className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-md 
                                text-gray-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30
                                opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity
-                               ${selectedConversation?._id === conv._id ? 'opacity-100' : ''}`}
-                    title="Hapus Percakapan"
+                               ${
+                                 selectedConversation?._id === conv._id
+                                   ? 'opacity-100'
+                                   : ''
+                               }`}
+                    title='Hapus Percakapan'
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className='w-4 h-4' />
                   </button>
                 </div>
               ))
@@ -437,7 +458,7 @@ const ChatHistoryView = () => {
         </div>
 
         {/* Detail */}
-        <div className='lg:col-span-2 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[600px] flex flex-col overflow-hidden'>
+        <div className='lg:col-span-2 bg-white dark:bg-neutral-900 border border-gray-200 dark:border-neutral-800 rounded-xl shadow-sm h-[800px] flex flex-col overflow-hidden'>
           {detailLoading ? (
             <div className='flex justify-center items-center h-full text-gray-400'>
               <Loader2 className='w-12 h-12 animate-spin' />
@@ -453,7 +474,6 @@ const ChatHistoryView = () => {
                     ID: {selectedConversation._id}
                   </p>
                 </div>
-                {/* Tombol Hapus di Header Detail juga tetap ada */}
                 <button
                   onClick={() => handleDeleteChat(selectedConversation._id)}
                   className='flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors'
@@ -464,73 +484,145 @@ const ChatHistoryView = () => {
               </header>
               <div className='flex-1 overflow-y-auto p-6 flex flex-col gap-4 bg-white dark:bg-neutral-900'>
                 {selectedConversation.messages.length > 0 ? (
-                    selectedConversation.messages.map((msg, index) => (
+                  selectedConversation.messages.map((msg, index) => (
+                    <div
+                      key={index}
+                      className={`flex items-start gap-3 max-w-[90%] ${
+                        msg.sender === 'user'
+                          ? 'self-end flex-row-reverse'
+                          : 'self-start'
+                      }`}
+                    >
                       <div
-                        key={index}
-                        className={`flex items-start gap-3 max-w-[85%] ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                           msg.sender === 'user'
-                            ? 'self-end flex-row-reverse'
-                            : 'self-start'
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-200 dark:bg-neutral-700 text-gray-600 dark:text-gray-300'
                         }`}
                       >
-                        {/* Avatar & Message Bubble Code (Sama seperti sebelumnya) */}
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                            msg.sender === 'user'
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-gray-200 dark:bg-neutral-700 text-gray-600 dark:text-gray-300'
-                          }`}
-                        >
-                          {msg.sender === 'user' ? (
-                            <User className='w-4 h-4' />
-                          ) : (
-                            <Bot className='w-4 h-4' />
-                          )}
-                        </div>
-                        <div
-                          className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                            msg.sender === 'user'
-                              ? 'bg-blue-600 text-white rounded-tr-none'
-                              : 'bg-gray-100 dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-neutral-700'
-                          }`}
-                        >
-                          {/* --- KODE LAMA (DIHAPUS) --- */}
-                          {/* <p className="whitespace-pre-wrap">{msg.msg}</p> */}
-
-                          {/* --- KODE BARU (DIGANTI) --- */}
-                          {/* Class 'prose' digunakan untuk styling otomatis list/bold/paragraph */}
-                          <div className={`prose prose-sm max-w-none ${msg.sender === 'user' ? 'prose-invert' : 'dark:prose-invert'}`}>
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {msg.msg}
-                            </ReactMarkdown>
-                          </div>
-                          
-                          {/* Timestamp */}
-                          <p className={`text-[10px] mt-2 opacity-70 ${
-                            msg.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
-                          }`}>
-                              {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                          </p>
-                        </div>
+                        {msg.sender === 'user' ? (
+                          <User className='w-4 h-4' />
+                        ) : (
+                          <Bot className='w-4 h-4' />
+                        )}
                       </div>
-                    ))
-                ) : (
-                    // Tampilan jika chat dibuka tapi kosong (messages: [])
-                    <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                        <DatabaseZap className="w-12 h-12 mb-2 opacity-20"/>
-                        <p className="text-sm">Data percakapan kosong.</p>
-                        <p className="text-xs">Anda bisa menghapus percakapan ini melalui tombol di atas.</p>
+                      <div
+                        className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                          msg.sender === 'user'
+                            ? 'bg-blue-600 text-white rounded-tr-none'
+                            : 'bg-gray-100 dark:bg-neutral-800 text-gray-800 dark:text-gray-200 rounded-tl-none border border-gray-200 dark:border-neutral-700'
+                        }`}
+                      >
+                        {/* --- RENDERER MARKDOWN + HTML TABLE --- */}
+                        <div
+                          className={`prose prose-sm max-w-none ${
+                            msg.sender === 'user'
+                              ? 'prose-invert'
+                              : 'dark:prose-invert'
+                          } text-sm`}
+                        >
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeRaw]} // KUNCI: Render HTML Table dari AI
+                            components={{
+                              // Table Styling untuk Admin View
+                              table: ({ ...props }) => (
+                                <div className='overflow-x-auto my-3 border border-gray-200 dark:border-gray-700 rounded-lg'>
+                                  <table
+                                    className='min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-left text-xs'
+                                    {...props}
+                                  />
+                                </div>
+                              ),
+                              thead: ({ ...props }) => (
+                                <thead
+                                  className='bg-gray-50 dark:bg-gray-800'
+                                  {...props}
+                                />
+                              ),
+                              th: ({ ...props }) => (
+                                <th
+                                  className='px-3 py-2 font-bold text-gray-700 dark:text-gray-200 border-b'
+                                  {...props}
+                                />
+                              ),
+                              tbody: ({ ...props }) => (
+                                <tbody
+                                  className='bg-white dark:bg-neutral-900 divide-y divide-gray-200 dark:divide-gray-700'
+                                  {...props}
+                                />
+                              ),
+                              tr: ({ ...props }) => (
+                                <tr
+                                  className='hover:bg-gray-50 dark:hover:bg-neutral-800/50'
+                                  {...props}
+                                />
+                              ),
+                              td: ({ ...props }) => (
+                                <td
+                                  className='px-3 py-2 border-r border-gray-100 dark:border-gray-800 last:border-r-0 whitespace-pre-wrap align-top'
+                                  {...props}
+                                />
+                              ),
+                              ul: ({ ...props }) => (
+                                <ul
+                                  className='list-disc pl-4 mb-2 space-y-1'
+                                  {...props}
+                                />
+                              ),
+                              ol: ({ ...props }) => (
+                                <ol
+                                  className='list-decimal pl-4 mb-2 space-y-1'
+                                  {...props}
+                                />
+                              ),
+                              h3: ({ ...props }) => (
+                                <h3
+                                  className='font-bold text-base mt-4 mb-2 text-blue-600 dark:text-blue-400'
+                                  {...props}
+                                />
+                              ),
+                            }}
+                          >
+                            {msg.msg}
+                          </ReactMarkdown>
+                        </div>
+
+                        <p
+                          className={`text-[10px] mt-2 opacity-70 ${
+                            msg.sender === 'user'
+                              ? 'text-blue-100'
+                              : 'text-gray-500'
+                          }`}
+                        >
+                          {new Date(msg.createdAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      </div>
                     </div>
+                  ))
+                ) : (
+                  <div className='flex flex-col items-center justify-center h-full text-gray-400'>
+                    <DatabaseZap className='w-12 h-12 mb-2 opacity-20' />
+                    <p className='text-sm'>Data percakapan kosong.</p>
+                    <p className='text-xs'>
+                      Anda bisa menghapus percakapan ini melalui tombol di atas.
+                    </p>
+                  </div>
                 )}
               </div>
             </>
           ) : (
             <div className='flex flex-col items-center justify-center h-full text-gray-400 dark:text-neutral-600'>
-              <div className="p-6 bg-gray-50 dark:bg-neutral-800/50 rounded-full mb-4">
+              <div className='p-6 bg-gray-50 dark:bg-neutral-800/50 rounded-full mb-4'>
                 <MessageSquare className='w-10 h-10' />
               </div>
-              <h3 className='text-lg font-medium text-gray-900 dark:text-white'>Belum ada percakapan dipilih</h3>
-              <p className="text-sm mt-1">
+              <h3 className='text-lg font-medium text-gray-900 dark:text-white'>
+                Belum ada percakapan dipilih
+              </h3>
+              <p className='text-sm mt-1'>
                 Pilih salah satu dari daftar di sebelah kiri.
               </p>
             </div>
@@ -551,7 +643,7 @@ export default function AdminDashboard() {
 
   // 1. Ambil Role saat mount
   useEffect(() => {
-    const storedRole = localStorage.getItem('role'); 
+    const storedRole = localStorage.getItem('role');
     setUserRole(storedRole);
   }, []);
 
@@ -564,10 +656,8 @@ export default function AdminDashboard() {
         credentials: 'include',
       });
       if (!res.ok) throw new Error('Proses logout gagal.');
-      
-      // Hapus data session di browser
+
       localStorage.removeItem('role');
-      
       window.location.href = '/login';
     } catch (err) {
       if (err instanceof Error) {
@@ -588,13 +678,12 @@ export default function AdminDashboard() {
         return <KnowledgeView onBack={() => setActiveView('history')} />;
       case 'ragUpload':
         return (
-          <RagDetailView 
-            onBack={() => setActiveView('knowledge')} 
-            onSuccess={() => setActiveView('knowledge')} 
+          <RagDetailView
+            onBack={() => setActiveView('knowledge')}
+            onSuccess={() => setActiveView('knowledge')}
           />
         );
       case 'manageAdmin':
-        // Hanya render jika SUPER_ADMIN (double protection di UI level)
         return userRole === 'SUPER_ADMIN' ? (
           <ManageAdminView onBack={() => setActiveView('history')} />
         ) : (

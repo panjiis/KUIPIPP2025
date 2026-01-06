@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/fahri22002/chatbot-SMUP#readme",
   "dependencies": {
-    "bcrypt": "^6.0.0"
+    "bcrypt": "^6.0.0",
+    "rehype-raw": "^7.0.0"
   }
 }
