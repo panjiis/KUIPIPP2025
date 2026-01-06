@@ -1,13 +1,17 @@
-from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import multiprocessing
 import gc
 import importlib
 import io
 import os
+import json
+import asyncio
 from datetime import datetime
 from pymongo import MongoClient
-from pypdf import PdfReader
+
+# --- PERUBAHAN: GANTI PYPDF DENGAN PDFPLUMBER ---
+import pdfplumber 
 
 import rag
 
@@ -23,22 +27,95 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"Hello": "Ini adalah server AI untuk Chatbot"}
+    return {"Hello": "Server AI Chatbot (WebSocket Ready + Table Support)"}
+
+# ==============================================================================
+# HELPER: KONVERSI TABEL KE MARKDOWN
+# ==============================================================================
+def convert_table_to_markdown(table):
+    """
+    Mengubah list of lists dari pdfplumber menjadi string Markdown Table.
+    Contoh Input: [['Nama', 'Umur'], ['Ali', '20']]
+    Output: 
+    | Nama | Umur |
+    |---|---|
+    | Ali | 20 |
+    """
+    if not table or len(table) < 2: return ""
+    
+    try:
+        # 1. Bersihkan None menjadi string kosong
+        cleaned_table = [[str(cell) if cell is not None else "" for cell in row] for row in table]
+        
+        # 2. Buat Header
+        header = "| " + " | ".join(cleaned_table[0]) + " |"
+        separator = "| " + " | ".join(["---"] * len(cleaned_table[0])) + " |"
+        
+        # 3. Buat Body
+        body = ""
+        for row in cleaned_table[1:]:
+            # Gabungkan row, ganti newline dalam sel dengan spasi agar tabel tidak pecah
+            clean_row = [cell.replace("\n", " ") for cell in row]
+            body += "\n| " + " | ".join(clean_row) + " |"
+            
+        return f"\n{header}\n{separator}{body}\n"
+    except Exception as e:
+        print(f"⚠️ Table conversion error: {e}")
+        return ""
+
+# ==============================================================================
+# 1. WEBSOCKET ENDPOINT (UTAMA)
+# ==============================================================================
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    print(f"🔌 Client Connected: {websocket.client}")
+    
+    try:
+        while True:
+            # 1. Terima Pesan
+            raw_data = await websocket.receive_text()
+            
+            try:
+                payload = json.loads(raw_data)
+                message = payload.get("message", "")
+            except json.JSONDecodeError:
+                message = raw_data
+
+            if not message: continue
+
+            print(f"📩 Received (WS): {message}")
+
+            # 2. Proses RAG (Non-blocking)
+            reply_text = await asyncio.to_thread(rag.ask, message, [])
+
+            # 3. Kirim Balasan
+            response_data = {"Reply": reply_text}
+            await websocket.send_json(response_data)
+            
+            await asyncio.to_thread(gc.collect)
+
+    except WebSocketDisconnect:
+        print(f"🔌 Client Disconnected: {websocket.client}")
+    except Exception as e:
+        print(f"⚠️ WebSocket Error: {e}")
+        try: await websocket.close()
+        except: pass
+
+# ==============================================================================
+# 2. HTTP ENDPOINTS (UPLOAD & ADMIN)
+# ==============================================================================
 
 @app.post("/reply")
-async def reply(req: Request):
-    """Endpoint untuk menjawab pertanyaan"""
+async def reply_http(req: Request):
+    """Fallback HTTP jika client belum support WS"""
     try:
         data = await req.json()
         message = data.get("message", "")
-        reply_text = rag.ask(message)
-        
-        gc.collect()
-        
+        reply_text = rag.ask(message, [])
         return {"Reply": reply_text}
     except Exception as e:
-        print(f"Error di /reply: {e}")
-        return {"Reply": "⚠️ Terjadi kesalahan saat memproses pertanyaan."}
+        return {"Reply": f"Error: {str(e)}"}
 
 @app.post("/api/upload-knowledge")
 async def upload_knowledge(
@@ -46,55 +123,65 @@ async def upload_knowledge(
     topic: str = Form(...),
     category: str = Form(...)
 ):
-    """Endpoint untuk upload file PDF/TXT, simpan ke MongoDB, dan Auto-RAG"""
-    print(f"📂 Menerima file untuk upload: {file.filename}")
-    
+    print(f"📂 Upload: {file.filename}")
     try:
         content_text = ""
-        
         file_content = await file.read()
         
+        # 1. Ekstrak PDF dengan PDFPLUMBER (Lebih jago Tabel)
         if file.filename.lower().endswith('.pdf'):
             try:
-                pdf_reader = PdfReader(io.BytesIO(file_content))
-                for page in pdf_reader.pages:
-                    text = page.extract_text()
-                    if text:
-                        content_text += text + "\n"
+                # Membuka PDF dari memory
+                with pdfplumber.open(io.BytesIO(file_content)) as pdf:
+                    for i, page in enumerate(pdf.pages):
+                        page_content = ""
+                        
+                        # A. Coba Ekstrak Tabel Dulu
+                        tables = page.extract_tables()
+                        if tables:
+                            print(f"   📄 Page {i+1}: Found {len(tables)} tables.")
+                            for table in tables:
+                                # Konversi ke Markdown Table biar AI paham
+                                md_table = convert_table_to_markdown(table)
+                                page_content += f"\n\n{md_table}\n\n"
+                        
+                        # B. Ambil Teks Biasa (untuk narasi)
+                        text = page.extract_text()
+                        if text:
+                            page_content += text + "\n"
+                        
+                        content_text += page_content
+                        
             except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Gagal membaca PDF: {str(e)}")
+                print(f"❌ PDFPlumber Error: {e}")
+                raise HTTPException(status_code=400, detail=f"Bad PDF: {str(e)}")
                 
         elif file.filename.lower().endswith('.txt'):
-            try:
-                content_text = file_content.decode('utf-8')
-            except UnicodeDecodeError:
-                content_text = file_content.decode('latin-1')
+            content_text = file_content.decode('utf-8', errors='ignore')
         else:
-            raise HTTPException(status_code=400, detail="Format file tidak didukung. Gunakan PDF atau TXT.")
+            raise HTTPException(status_code=400, detail="Only PDF/TXT allowed")
 
         if not content_text.strip():
-             raise HTTPException(status_code=400, detail="File kosong atau teks tidak terbaca (mungkin gambar/scan).")
+             raise HTTPException(status_code=400, detail="Empty content")
 
+        # 2. Smart Formatting (AI)
+        # AI sekarang menerima input yang sudah ada tabel Markdown-nya
+        # Tugas AI tinggal merapikan sisanya.
+        print("🤖 AI Formatting...")
+        formatted_content = rag.smart_clean_text(content_text)
+
+        # 3. Simpan ke Mongo
         mongo_uri = os.getenv("MONGO_URI")
-        if not mongo_uri:
-             raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
-         
-        MONGO_DB_NAME = os.getenv("MONGO_DB_NAME")
-        if not MONGO_DB_NAME:
-             raise HTTPException(status_code=500, detail="MONGO_DB_NAME belum disetting di env.")
-
-        mongo_uri = os.getenv("MONGO_URI")
-        if not mongo_uri:
-             raise HTTPException(status_code=500, detail="MONGO_URI belum disetting di env.")
-
+        db_name = os.getenv("MONGO_DB_NAME")
+        
         client = MongoClient(mongo_uri)
-        db = client[MONGO_DB_NAME]
+        db = client[db_name]
         collection = db["knowledgebase"]
         
         new_doc = {
             "topic": topic,
             "category": category,
-            "content": content_text,
+            "content": formatted_content, 
             "status": "ACTIVE",
             "is_sync": False, 
             "updatedAt": datetime.now().isoformat()
@@ -103,114 +190,54 @@ async def upload_knowledge(
         result = collection.insert_one(new_doc)
         client.close()
         
-        print(f"✅ Data tersimpan di MongoDB dengan ID: {result.inserted_id}")
-        
-        print("🔄 Menjalankan Auto-RAG Indexing...")
-        
+        # 4. Trigger Auto-Index
+        print("🔄 Auto-Indexing...")
         importlib.reload(rag)
-        
         rag_process = multiprocessing.Process(target=rag.mainrag)
         rag_process.start()
         rag_process.join()
-        
-        gc.collect()
         
         if rag_process.exitcode == 0:
              return {
-                "message": "File berhasil diupload dan RAG telah diperbarui!",
-                "data": {
-                    "_id": str(result.inserted_id),
-                    "topic": topic,
-                    "category": category
-                }
+                "message": "Sukses! Tabel PDF berhasil dikonversi & disimpan.",
+                "data": {"_id": str(result.inserted_id), "topic": topic}
             }
         else:
-            raise HTTPException(status_code=500, detail="Gagal melakukan update RAG otomatis.")
+            raise HTTPException(status_code=500, detail="Indexing Failed")
 
-    except HTTPException as he:
-        raise he
     except Exception as e:
         print(f"❌ Upload Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
-
-@app.get("/do-scrapping")
-def do_scrapping_route():
-    return {"Status": "Not Implemented"}
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/do-rag")
 def do_rag_route():
-    """Endpoint untuk menjalankan proses indexing RAG manual"""
-    print("\n" + "="*50)
-    print("Menerima permintaan /do-rag...")
-    print("="*50)
-    
+    """Manual Re-Index"""
+    print("🔄 Manual RAG Triggered...")
     try:
         importlib.reload(rag)
-        print("Modul 'rag' telah di-reload.")
-        
-        print("Membersihkan memori sebelum proses RAG...")
-        gc.collect()
-        
-        print("Memulai proses RAG di dalam proses terpisah...")
         rag_process = multiprocessing.Process(target=rag.mainrag)
         rag_process.start()
         rag_process.join()
         
-        gc.collect()
-        
         if rag_process.exitcode == 0:
-            print("="*50)
-            print("✓ Proses RAG berhasil diselesaikan!")
-            print("  Server siap menerima pertanyaan baru.")
-            print("="*50)
-            return {
-                "Status": "Success", 
-                "Message": "RAG indexing completed successfully"
-            }
+            return {"Status": "Success", "Message": "RAG Re-indexed from MongoDB"}
         else:
-            print("="*50)
-            print("⚠️ Proses RAG GAGAL (exit code non-zero).")
-            print("="*50)
-            return {
-                "Status": "Error", 
-                "Message": "RAG process FAILED. Check backend logs for exceptions."
-            }
-            
+            return {"Status": "Error", "Message": "RAG Process Failed"}
     except Exception as e:
-        print(f"❌ Error di /do-rag (level FastAPI): {e}")
-        return {
-            "Status": "Error", 
-            "Message": f"Failed to start RAG process: {str(e)}"
-        }
+        return {"Status": "Error", "Message": str(e)}
 
 @app.get("/clear-cache")
 def clear_cache():
-    """Endpoint untuk membersihkan cache/memori"""
-    print("Membersihkan cache...")
     rag.force_cleanup_chroma()
-    return {"Status": "Cache cleared successfully"}
+    return {"Status": "Cache cleared"}
 
 @app.get("/reset-memory")
-def reset_memory():
-    """Endpoint untuk mereset memory percakapan"""
+def reset_memory_route():
     rag.reset_memory()
-    return {"Status": "Conversation memory reset"}
-
+    return {"Status": "Memory reset"}
 
 if __name__ == "__main__":
     import uvicorn
-    
     multiprocessing.set_start_method('spawn', force=True)
-    
-    print("\n" + "="*50)
-    print("🚀 Starting FastAPI Server for RAG Chatbot")
-    print("="*50)
-    print("Available endpoints:")
-    print("  POST /reply             - Send question to chatbot")
-    print("  POST /api/upload-knowledge - Upload PDF/TXT & Auto-Index")
-    print("  GET  /do-rag            - Run RAG indexing process manually")
-    print("  GET  /clear-cache       - Clear memory/cache")
-    print("  GET  /reset-memory      - Reset conversation history")
-    print("="*50 + "\n")
-    
+    print("🚀 Starting Server (WS Port 8080)...")
     uvicorn.run(app, host="127.0.0.1", port=8080)
