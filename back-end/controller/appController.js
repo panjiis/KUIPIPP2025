@@ -30,56 +30,76 @@ const getChat = async (req, res) => {
 
 const postMsg = async (req, res) => {
   try {
+    // 1. Validasi Sesi Chat
     if (!req.session.chatId) {
       return res.status(400).json({ 
-        error: true,
-        refresh: true,
-        message: 'Chat harus dibuat terlebih dahulu.'
+        error: true, 
+        refresh: true, 
+        message: 'Chat harus dibuat terlebih dahulu.' 
       });
     }
     const chat = await Chat.findById(req.session.chatId);
-
-    if (!chat) {
-      return res.status(404).json({
-        error: true,
-        refresh: true,
-        message: 'Chat tidak ditemukan.'
-      });
-    }
-
-    if (chat.status !== "ACTIVE") {
+    if (!chat || chat.status !== "ACTIVE") {
       return res.status(400).json({
         error: true,
         refresh: true,
-        message: 'Chat sudah tidak aktif. Silakan buat chat baru.'
+        message: 'Chat tidak ditemukan atau sudah tidak aktif.'
       });
     }
 
-    const { msg, attachment } = req.body;
+    // 2. Ambil Data dari Body
+    let { msg, attachment, sender = "USER", isLogOnly = false } = req.body;
 
-    
+    // --- FIX 1: Pastikan Msg Selalu String ---
+    if (typeof msg === 'object') {
+        msg = JSON.stringify(msg);
+    }
 
+    // --- FIX 2: Normalisasi Sender (BOT -> SELF) ---
+    // Database lama Anda sepertinya menggunakan "SELF", bukan "BOT"
+    let finalSender = sender.toUpperCase();
+    if (finalSender === 'BOT' || finalSender === 'AI') {
+        finalSender = 'SELF'; 
+    }
+
+    // 3. Simpan Pesan ke Database
     const newMessage = new Message({
       chatId: req.session.chatId,
-      msg,
-      attachment,
-      sender: "USER"
+      msg: msg, 
+      attachment: attachment,
+      sender: finalSender // Gunakan sender yang sudah dinormalisasi (USER/SELF)
     });
-
     
+    await newMessage.save();
 
-    
+    // 4. Log Only (Mencegah Double Reply)
+    // Jika request ini datang dari logging frontend, berhenti di sini.
+    if (isLogOnly) {
+        return res.status(200).json({
+            error: false,
+            status: 'Log saved',
+            data: newMessage
+        });
+    }
+
+    // ============================================================
+    // LOGIKA FALLBACK (Hanya jalan jika lewat HTTP biasa / Postman)
+    // ============================================================
     const response = await axios.post('http://127.0.0.1:8080/reply', {
       message: msg
     });
-    const replyText = response.data.Reply;
+    
+    const replyText = typeof response.data.Reply === 'object' 
+        ? JSON.stringify(response.data.Reply) 
+        : response.data.Reply;
+    
     const newReply = new Message({
       chatId: req.session.chatId,
       msg: replyText,
       attachment: null,
       sender: "SELF"
     });
-    
+    await newReply.save();
     
     res.status(201).json({
       error: false,
@@ -88,14 +108,10 @@ const postMsg = async (req, res) => {
       reply: replyText
     });
     
-    await newMessage.save();
-    await newReply.save();
   } catch (error) {
     console.error('Error saat mengirim pesan:', error);
-    res.status(500).json({
-      error: true,
-      message: error.message
-    });
+    // Tampilkan pesan error validasi mongoose jika ada
+    res.status(500).json({ error: true, message: error.message });
   }
 };
 

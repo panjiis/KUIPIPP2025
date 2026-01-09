@@ -318,7 +318,19 @@ def ask(question: str, history: list = []) -> str:
             chain = qa_prompt | llm
             response = chain.invoke({"chat_history": chat_history_str, "context": context_text, "question": question})
 
-            return getattr(response, "content", None) or getattr(response, "text", None) or str(response)
+            # ---------------------------------------------------------
+            # 🔥 BAGIAN INI YANG DIGANTI (PERBAIKAN) 🔥
+            # ---------------------------------------------------------
+            # Tujuannya: Memaksa output jadi string bersih, bukan Objek/Dict
+            
+            if hasattr(response, 'content'):
+                return str(response.content)
+            elif isinstance(response, dict):
+                return response.get('content') or response.get('text') or str(response)
+            else:
+                return str(response)
+            # ---------------------------------------------------------
+
     except Exception as e:
         logger.error(f"Ask Error: {e}")
         return f"System Error: {str(e)}"

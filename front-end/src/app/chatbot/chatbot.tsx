@@ -70,6 +70,7 @@ export default function Chatbot() {
   const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [userConsent, setUserConsent] = useState<string | null>(null);
+  const userConsentRef = useRef<string | null>(null);
   const [isCaptchaVerified, setIsCaptchaVerified] = useState(false);
 
   // WebSocket State
@@ -110,23 +111,29 @@ export default function Chatbot() {
   // ------------------------------------------------------------
   const logChatToBackend = useCallback(
     async (sender: 'user' | 'bot', msg: string) => {
-      if (userConsent !== 'true') return;
+      // BACA DARI REF (Selalu fresh value)
+      if (userConsentRef.current !== 'true') {
+          console.warn('Logging skipped: Consent is', userConsentRef.current);
+          return;
+      }
+
       try {
-        await fetch('http://localhost:5000/api/log-chat', {
+        console.log(`📝 Saving ${sender} msg to DB...`); // Debug log
+        await fetch('http://localhost:5000/api/send-msg', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ sender, msg }),
+          body: JSON.stringify({ sender, msg, isLogOnly: true }),
         });
       } catch (error) {
         console.warn('Failed logging chat', error);
       }
     },
-    [userConsent]
+    [] // Dependency kosong agar fungsi stabil (tidak re-create)
   );
 
   // ------------------------------------------------------------
-  // WEBSOCKET
+  // WEBSOCKET (DIPERBAIKI)
   // ------------------------------------------------------------
   useEffect(() => {
     const socket = new WebSocket('ws://localhost:8080/ws');
@@ -142,7 +149,8 @@ export default function Chatbot() {
         if (data.Reply) {
           setMessages((prev) => [...prev, { sender: 'bot', text: data.Reply }]);
           setLoading(false);
-          logChatToBackend('bot', data.Reply);
+          // Fungsi ini sekarang aman dipanggil kapan saja
+          logChatToBackend('bot', data.Reply); 
         }
       } catch (e) {
         console.error('WS Parse Error:', e);
@@ -163,6 +171,45 @@ export default function Chatbot() {
     setWs(socket);
     return () => socket.close();
   }, [logChatToBackend]);
+
+  // ------------------------------------------------------------
+  // WEBSOCKET
+  // ------------------------------------------------------------
+  // useEffect(() => {
+  //   const socket = new WebSocket('ws://localhost:8080/ws');
+
+  //   socket.onopen = () => {
+  //     console.log('✅ Connected to AI Server (WS)');
+  //     setWsStatus('OPEN');
+  //   };
+
+  //   socket.onmessage = (event) => {
+  //     try {
+  //       const data = JSON.parse(event.data);
+  //       if (data.Reply) {
+  //         setMessages((prev) => [...prev, { sender: 'bot', text: data.Reply }]);
+  //         setLoading(false);
+  //         logChatToBackend('bot', data.Reply);
+  //       }
+  //     } catch (e) {
+  //       console.error('WS Parse Error:', e);
+  //     }
+  //   };
+
+  //   socket.onclose = () => {
+  //     console.log('❌ Disconnected from AI Server');
+  //     setWsStatus('CLOSED');
+  //   };
+
+  //   socket.onerror = (err) => {
+  //     console.error('⚠️ WebSocket Error:', err);
+  //     setWsStatus('CLOSED');
+  //     setLoading(false);
+  //   };
+
+  //   setWs(socket);
+  //   return () => socket.close();
+  // }, [logChatToBackend]);
 
   // ------------------------------------------------------------
   // COPY FUNCTION
@@ -216,6 +263,9 @@ export default function Chatbot() {
 
   const handleConsent = (hasAgreed: boolean) => {
     setUserConsent(hasAgreed ? 'true' : 'false');
+    const val = hasAgreed ? 'true' : 'false';
+    setUserConsent(val);
+    userConsentRef.current = val; // UPDATE REF DI SINI
     setShowConsentModal(false);
     if (!hasAgreed) {
       setMessages((prev) => [
@@ -557,7 +607,7 @@ export default function Chatbot() {
                       ),
                     }}
                   >
-                    {msg.text}
+                    {typeof msg.text === 'string' ? msg.text : String(msg.text || '')}
                   </ReactMarkdown>
                 </div>
 
