@@ -335,6 +335,80 @@ def ask(question: str, history: list = []) -> str:
         logger.error(f"Ask Error: {e}")
         return f"System Error: {str(e)}"
 
+        # ... (kode impor dan inisialisasi yang sudah ada tetap sama)
+
+# =======================================================================
+# ASYNC STREAMING FUNCTION (NEW)
+# =======================================================================
+async def ask_stream(question: str, history: list = []):
+    """
+    Versi Async dari ask() yang menghasilkan generator stream.
+    """
+    if not llm or not embeddings:
+        yield "⚠️ AI System is initializing..."
+        return
+
+    try:
+        # 1. Prepare History String
+        chat_history_str = ""
+        recent_history = history[-5:]
+        for msg in recent_history:
+            role = "Human" if msg.get("role") == "user" else "AI"
+            content = msg.get("content", "")
+            chat_history_str += f"{role}: {content}\n"
+
+        # 2. Retrieval & Rerank (Masih Synchronous tapi cepat)
+        #    Kita wrap di to_thread agar tidak memblokir loop async utama jika berat
+        import asyncio
+        
+        # Helper wrapper untuk retrieval agar bisa di-await
+        def retrieve_and_rerank():
+            with get_chroma_db() as db:
+                if not db:
+                    return None, "DB_NOT_READY"
+                retriever = db.as_retriever(search_kwargs={"k": 8})
+                initial_docs = retriever.invoke(question)
+                final_docs, intent = rerank_with_gemini(question, initial_docs, top_k=3)
+                return final_docs, intent
+
+        final_docs, intent = await asyncio.to_thread(retrieve_and_rerank)
+
+        if intent == "DB_NOT_READY":
+            yield "Knowledge database is not ready."
+            return
+
+        # 3. Context Construction
+        context_text = ""
+        if intent == "QUERY" and final_docs:
+            snippets = []
+            for d in final_docs:
+                txt = re.sub(r"\s+", " ", d.page_content).strip()
+                snippets.append(f"[Source: {d.metadata.get('topic', 'General')}]\n{txt}")
+            context_text = "\n\n".join(snippets)
+        
+        # 4. Stream Generation (LangChain astream)
+        chain = qa_prompt | llm
+        
+        # Kita gunakan astream untuk mendapatkan token per token
+        async for chunk in chain.astream({
+            "chat_history": chat_history_str,
+            "context": context_text,
+            "question": question
+        }):
+            # Ambil konten teks dari chunk
+            content = ""
+            if hasattr(chunk, 'content'):
+                content = chunk.content
+            elif isinstance(chunk, str):
+                content = chunk
+            
+            if content:
+                yield content
+
+    except Exception as e:
+        logger.error(f"Ask Stream Error: {e}")
+        yield f"System Error: {str(e)}"
+
 
 # =======================================================================
 # Chroma helpers & indexing (kept behavior but with logging)

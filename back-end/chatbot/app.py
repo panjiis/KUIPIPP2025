@@ -213,8 +213,10 @@ def background_process_document(inserted_id):
         traceback.print_exc()
 
 
+# ... (impor lainnya tetap)
+
 # ========================================================================
-# WebSocket endpoint (unchanged, still uses rag.ask)
+# WebSocket endpoint (STREAMING UPDATE)
 # ========================================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -228,20 +230,38 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 payload = json.loads(raw_data)
                 message = payload.get("message", "")
+                # Optional: ambil history jika dikirim dari frontend
+                history = payload.get("history", []) 
             except json.JSONDecodeError:
                 message = raw_data
+                history = []
 
             if not message:
                 continue
 
-            print(f"📩 Received (WS): {message}")
+            print(f"📩 Received (WS Stream): {message}")
 
-            # Call rag.ask in a thread to avoid blocking event loop
-            reply_text = await asyncio.to_thread(rag.ask, message, [])
+            # --- STREAMING LOGIC ---
+            full_reply = ""
+            
+            # Panggil fungsi async generator dari rag.py
+            async for chunk in rag.ask_stream(message, history):
+                full_reply += chunk
+                # Kirim potongan token ke client
+                await websocket.send_json({
+                    "type": "stream", 
+                    "token": chunk
+                })
+                # Sedikit delay agar frontend tidak kewalahan (opsional)
+                await asyncio.sleep(0.01)
 
-            response_data = {"Reply": reply_text}
-            await websocket.send_json(response_data)
+            # Kirim sinyal bahwa stream selesai & kirim full text untuk safety
+            await websocket.send_json({
+                "type": "end", 
+                "full_text": full_reply
+            })
 
+            # Garbage collect
             await asyncio.to_thread(gc.collect)
 
     except WebSocketDisconnect:
@@ -252,6 +272,7 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close()
         except:
             pass
+
 
 
 # ========================================================================
