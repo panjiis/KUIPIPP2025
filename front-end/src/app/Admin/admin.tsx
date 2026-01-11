@@ -75,6 +75,12 @@ type ActiveView =
   | 'ragUpload'
   | 'settings';
 
+interface MonitorEvent {
+  ts: number;
+  type: string;
+  payload: unknown;
+}
+
 // ==================================================
 // Komponen Konfirmasi Bottom-Right (Toast-like UI)
 // ==================================================
@@ -778,11 +784,16 @@ const ChatHistoryView = () => {
 
 // ============================================================================
 // KOMPONEN UTAMA: ADMIN DASHBOARD
+// - Added a small monitor websocket to receive real-time monitoring events
+//   from the backend (/ws-monitor). Display recent events in a floating panel.
 // ============================================================================
 export default function AdminDashboard() {
   const [activeView, setActiveView] = useState<ActiveView>('history');
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Real-time monitor events
+  const [, setMonitorEvents] = useState<MonitorEvent[]>([]);
 
   // 1. Ambil Role saat mount
   useEffect(() => {
@@ -790,7 +801,51 @@ export default function AdminDashboard() {
     setUserRole(storedRole);
   }, []);
 
-  // 2. Logic Logout
+  // 2. Setup monitor websocket
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket('ws://localhost:8080/ws-monitor');
+
+      ws.onopen = () => {
+        console.log('🔔 Connected to monitor socket');
+      };
+
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          setMonitorEvents((prev) => {
+            const next = [
+              { ts: Date.now(), type: data.type || 'event', payload: data },
+              ...prev,
+            ].slice(0, 10);
+            return next;
+          });
+        } catch (e) {
+          console.warn('Monitor parse error', e);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('🔕 Monitor socket closed');
+      };
+
+      ws.onerror = (err) => {
+        console.warn('Monitor socket error', err);
+      };
+    } catch (e) {
+      console.warn('Monitor ws init failed', e);
+    }
+
+    return () => {
+      if (ws)
+        try {
+          ws.close();
+        } catch {}
+    };
+  }, []);
+
+  // 3. Logic Logout
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
@@ -812,7 +867,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // 3. Render View Controller
+  // 4. Render View Controller
   const renderView = () => {
     switch (activeView) {
       case 'history':
@@ -851,6 +906,8 @@ export default function AdminDashboard() {
       />
       {/* Main Content Area */}
       <main className='flex-1 overflow-hidden relative'>{renderView()}</main>
+
+    
     </div>
   );
 }

@@ -41,7 +41,7 @@ def read_root():
 # ========================================================================
 def convert_table_to_markdown(table):
     """
-    Mengubah list of lists dari pdfplumber menjadi string Markdown Table.
+    Mengubah list of lists dari pdfplumber menjadi string Markdown.
     Contoh Input: [['Nama', 'Umur'], ['Ali', '20']]
     Output:
     | Nama | Umur |
@@ -213,15 +213,106 @@ def background_process_document(inserted_id):
         traceback.print_exc()
 
 
-# ... (impor lainnya tetap)
+# ========================================================================
+# LIVE MONITOR / WEBSOCKET LOGIC
+# - Adds a dedicated /ws-monitor endpoint for admin monitoring.
+# - The chat websocket (/ws) will emit monitoring events to connected monitor clients.
+# - Streaming used for "monitoring only": server will send periodic progress events
+#   while answering, and a final reply event. Client-side will update the single
+#   bot message (no double replies).
+# ========================================================================
+monitor_connections = set()
+
+
+async def broadcast_monitor(message: dict):
+    """
+    Send a JSON message to all connected monitor websockets.
+    Safe: if a send fails for a socket, remove it.
+    """
+    dead = []
+    for ws in list(monitor_connections):
+        try:
+            await ws.send_json(message)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        try:
+            monitor_connections.remove(ws)
+        except Exception:
+            pass
+
+
+@app.websocket("/ws-monitor")
+async def websocket_monitor(websocket: WebSocket):
+    await websocket.accept()
+    monitor_connections.add(websocket)
+    print(f"🔔 Monitor connected: {websocket.client}. Total monitors: {len(monitor_connections)}")
+    try:
+        # keep connection alive; monitors may not send messages, but we listen to pings
+        while True:
+            try:
+                await websocket.receive_text()
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                # ignore timeouts or non-text pings
+                await asyncio.sleep(1)
+    finally:
+        try:
+            monitor_connections.remove(websocket)
+        except Exception:
+            pass
+        print(f"🔕 Monitor disconnected: {websocket.client}. Total monitors: {len(monitor_connections)}")
+
 
 # ========================================================================
-# WebSocket endpoint (STREAMING UPDATE)
+# WebSocket endpoint (updated to support 'streaming for monitoring' only)
+# - Sends start/progress/final messages (type field).
+# - Does not append duplicate/repeated final replies; client should update existing bot message.
 # ========================================================================
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print(f"🔌 Client Connected: {websocket.client}")
+
+    async def process_and_respond(wb: WebSocket, message_text: str, request_id: str):
+        """
+        Runs rag.ask in an executor, sends periodic progress events to the client
+        and monitor sockets, and finally sends the completed reply.
+        """
+        # run rag.ask in a thread (non-blocking to event loop)
+        task = asyncio.create_task(asyncio.to_thread(rag.ask, message_text, []))
+
+        # while the task is running, emit progress updates every 0.6s
+        try:
+            while not task.done():
+                progress_msg = {"type": "stream", "event": "progress", "request_id": request_id, "message": "generating..."}
+                try:
+                    await wb.send_json(progress_msg)
+                except Exception:
+                    # if send fails (client disconnected) we just break
+                    break
+                # also notify monitors
+                await broadcast_monitor({"type": "monitor_progress", "request_id": request_id, "message": "generating..."})
+                await asyncio.sleep(0.6)
+
+            # get result
+            try:
+                reply_text = await task
+            except Exception as e:
+                reply_text = f"System Error: {str(e)}"
+
+            # final reply event
+            final_msg = {"type": "reply", "request_id": request_id, "reply": reply_text}
+            try:
+                await wb.send_json(final_msg)
+            except Exception:
+                pass
+
+            # broadcast final to monitors
+            await broadcast_monitor({"type": "monitor_reply", "request_id": request_id, "reply": reply_text, "user_message": message_text})
+        except Exception as e:
+            print("Error in process_and_respond:", e)
 
     try:
         while True:
@@ -230,39 +321,26 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 payload = json.loads(raw_data)
                 message = payload.get("message", "")
-                # Optional: ambil history jika dikirim dari frontend
-                history = payload.get("history", []) 
             except json.JSONDecodeError:
                 message = raw_data
-                history = []
 
             if not message:
                 continue
 
-            print(f"📩 Received (WS Stream): {message}")
+            print(f"📩 Received (WS): {message}")
 
-            # --- STREAMING LOGIC ---
-            full_reply = ""
-            
-            # Panggil fungsi async generator dari rag.py
-            async for chunk in rag.ask_stream(message, history):
-                full_reply += chunk
-                # Kirim potongan token ke client
-                await websocket.send_json({
-                    "type": "stream", 
-                    "token": chunk
-                })
-                # Sedikit delay agar frontend tidak kewalahan (opsional)
-                await asyncio.sleep(0.01)
+            # generate a request id for mapping
+            request_id = f"{int(time.time()*1000)}-{os.getpid()}"
 
-            # Kirim sinyal bahwa stream selesai & kirim full text untuk safety
-            await websocket.send_json({
-                "type": "end", 
-                "full_text": full_reply
-            })
+            # notify client & monitors: stream start
+            try:
+                await websocket.send_json({"type": "stream", "event": "start", "request_id": request_id, "message": "processing"})
+            except Exception:
+                pass
+            await broadcast_monitor({"type": "monitor_user_message", "request_id": request_id, "message": message})
 
-            # Garbage collect
-            await asyncio.to_thread(gc.collect)
+            # start processing in background task (so loop can keep receiving if needed)
+            asyncio.create_task(process_and_respond(websocket, message, request_id))
 
     except WebSocketDisconnect:
         print(f"🔌 Client Disconnected: {websocket.client}")
@@ -272,7 +350,6 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close()
         except:
             pass
-
 
 
 # ========================================================================
