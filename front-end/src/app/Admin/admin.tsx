@@ -15,6 +15,7 @@ import {
   UploadCloud,
   Settings,
   Menu,
+  History,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,6 +30,7 @@ import KnowledgeView from './knowledge-view';
 import ManageAdminView from './manage-admin-view';
 import RagDetailView from './rag-detail-view';
 import SettingsView from './settings-view';
+import BackupHistoryView from './backup-history-view';
 
 // --- INTERFACES ---
 interface ChatSession {
@@ -73,7 +75,8 @@ type ActiveView =
   | 'knowledge'
   | 'manageAdmin'
   | 'ragUpload'
-  | 'settings';
+  | 'settings'
+  | 'backupHistory';
 
 // ==================================================
 // Komponen Konfirmasi Bottom-Right (Toast-like UI)
@@ -185,6 +188,11 @@ const AdminSidebar = ({
       view: 'knowledge' as ActiveView,
       icon: DatabaseZap,
       label: 'Knowledge Base',
+    },
+    {
+      view: 'backupHistory' as ActiveView,
+      icon: History,
+      label: 'Riwayat Backup',
     },
     {
       view: 'ragUpload' as ActiveView,
@@ -819,6 +827,8 @@ export default function AdminDashboard() {
         return <ChatHistoryView />;
       case 'knowledge':
         return <KnowledgeView onBack={() => setActiveView('history')} />;
+      case 'backupHistory':
+        return <BackupHistoryView onBack={() => setActiveView('knowledge')} />;
       case 'ragUpload':
         return (
           <RagDetailView

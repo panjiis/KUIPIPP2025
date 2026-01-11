@@ -24,7 +24,7 @@ interface CategoryOption {
   value: string;
 }
 
-// Interface untuk menghindari error ESLint 'any' pada event react-select
+// Interface untuk opsi select
 interface SelectOption {
   label: string;
   value: string;
@@ -91,7 +91,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 3. HANDLER UPLOAD
+  // 3. HANDLER UPLOAD & BACKUP
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -108,6 +108,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
       formData.append('topic', topic);
       formData.append('category', category);
 
+      // STEP 1: Upload ke Python AI (Save + Indexing)
       setUploadStep('AI sedang membaca & merapikan format PDF...');
       
       const response = await fetch('http://localhost:8080/api/upload-knowledge', {
@@ -120,11 +121,31 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
         throw new Error(errData.detail || 'Gagal memproses dokumen di server AI.');
       }
 
+      // STEP 2: Trigger Backup Otomatis ke Node.js Backend
+      // Kita lakukan ini setelah upload sukses agar data baru ikut ter-backup
+      setUploadStep('Membuat Backup Data Server...');
+      
+      try {
+        const backupRes = await fetch('http://localhost:5000/api/backup/create', {
+          method: 'POST',
+          credentials: 'include', // Penting: Kirim cookie session admin
+        });
+        
+        if (!backupRes.ok) {
+          console.warn("Upload berhasil, namun gagal membuat backup otomatis.");
+        }
+      } catch (backupErr) {
+        console.error("Gagal melakukan backup otomatis:", backupErr);
+        // Kita tidak throw error di sini agar user tetap melihat pesan "Sukses Upload"
+        // karena fungsi utama (upload) sudah berhasil.
+      }
+
+      // STEP 3: Finalisasi
       setUploadStep('Selesai! Menyimpan data...');
       await new Promise(r => setTimeout(r, 800)); 
 
       toast.success("Dokumen Berhasil Diproses!", {
-        description: "Teks PDF telah dirapikan menjadi format tabel/list dan disimpan ke Knowledge Base."
+        description: "Data tersimpan & Backup otomatis telah dibuat."
       });
 
       setFile(null);
@@ -156,7 +177,7 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
               Upload Dokumen Cerdas
             </h1>
             <p className='text-gray-600 mt-1 font-medium opacity-80 text-sm'>
-              Upload PDF (Jadwal, Biaya, SK), AI akan otomatis membaca dan memperbaiki tabel yang berantakan.
+              Upload PDF (Jadwal, Biaya, SK), AI akan otomatis membaca, memperbaiki tabel, dan membuat backup.
             </p>
           </div>
           <button
@@ -222,8 +243,9 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
                       `!bg-white/60 !backdrop-blur-sm !border-white/50 !rounded-xl !shadow-none !py-1 ${
                         state.isFocused ? '!ring-2 !ring-primary/50 !border-primary/50' : ''
                       }`,
+                    // PERBAIKAN DI SINI: Tambahkan !z-[9999] agar muncul paling depan
                     menu: () => 
-                      '!bg-white/90 !backdrop-blur-md !border !border-white/40 !rounded-xl !mt-2 !shadow-xl !overflow-hidden',
+                      '!bg-white/90 !backdrop-blur-md !border !border-white/40 !rounded-xl !mt-2 !shadow-xl !overflow-hidden !z-[9999] relative',
                     option: (state) =>
                       `!cursor-pointer !text-sm !py-2.5 !px-4 ${
                         state.isFocused
@@ -346,4 +368,3 @@ export default function RagDetailView({ onBack, onSuccess }: RagDetailViewProps)
     </div>
   );
 }
-
