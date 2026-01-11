@@ -13,10 +13,14 @@ from bson import ObjectId
 import concurrent.futures
 import time
 import traceback
-
+import uuid
 # --- PERUBAHAN: GANTI PYPDF DENGAN PDFPLUMBER ---
 import pdfplumber
 
+
+# near top-level definitions
+monitor_connections = set()
+CLIENT_METADATA = {}
 # local rag module (must be available)
 import rag
 
@@ -40,14 +44,6 @@ def read_root():
 # Helper: convert table (pdfplumber) to markdown
 # ========================================================================
 def convert_table_to_markdown(table):
-    """
-    Mengubah list of lists dari pdfplumber menjadi string Markdown.
-    Contoh Input: [['Nama', 'Umur'], ['Ali', '20']]
-    Output:
-    | Nama | Umur |
-    |---|---|
-    | Ali | 20 |
-    """
     if not table or len(table) < 1:
         return ""
 
@@ -68,16 +64,10 @@ def convert_table_to_markdown(table):
         print(f"⚠️ Table conversion error: {e}")
         return ""
 
-
 # ========================================================================
 # Parallel PDF extraction helper (page-level)
 # ========================================================================
 def _extract_pdf_pages_bytes(file_bytes: bytes, max_workers: int = 4) -> str:
-    """
-    Extract text and markdown tables from PDF bytes using pdfplumber.
-    Parallelizes per-page processing using ThreadPoolExecutor (I/O-bound).
-    Returns raw concatenated content string.
-    """
     content_text = ""
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
@@ -94,7 +84,6 @@ def _extract_pdf_pages_bytes(file_bytes: bytes, max_workers: int = 4) -> str:
                     text = page.extract_text() or ""
                     page_content += text + "\n"
                 except Exception as e:
-                    # log and continue
                     print("Page extraction error:", e)
                 return page_content
 
@@ -106,7 +95,6 @@ def _extract_pdf_pages_bytes(file_bytes: bytes, max_workers: int = 4) -> str:
         print("Fatal PDF extraction error:", e)
         raise
     return content_text
-
 
 # ========================================================================
 # Background processing:
@@ -126,14 +114,6 @@ def _run_mainrag_detached():
 
 
 def background_process_document(inserted_id):
-    """
-    Background job that:
-      - Loads the raw content of the inserted document
-      - Optionally does pre-clean (if rag.pre_clean_local exists)
-      - Runs rag.smart_clean_text to produce cleaned markdown
-      - Updates the Mongo document with cleaned content and updatedAt
-      - Triggers rag.mainrag in a detached process (does not block)
-    """
     try:
         start_all = time.time()
         mongo_uri = os.getenv("MONGO_URI")
@@ -146,18 +126,15 @@ def background_process_document(inserted_id):
         db = client[db_name]
         collection = db["knowledgebase"]
 
-        # find document - handle both ObjectId and str
         query_id = inserted_id
         try:
             if isinstance(inserted_id, str):
                 query_id = ObjectId(inserted_id)
         except Exception:
-            # keep inserted_id as-is if conversion fails
             pass
 
         doc = collection.find_one({"_id": query_id})
         if not doc:
-            # fallback: try string match (in case _id stored as string)
             doc = collection.find_one({"_id": str(inserted_id)})
         if not doc:
             print(f"[background] Document not found: {inserted_id}")
@@ -166,7 +143,6 @@ def background_process_document(inserted_id):
 
         raw_content = doc.get("content", "") or ""
 
-        # Optional local pre-clean (fast)
         try:
             if hasattr(rag, "pre_clean_local"):
                 pre_cleaned = rag.pre_clean_local(raw_content)
@@ -176,7 +152,6 @@ def background_process_document(inserted_id):
             print("pre_clean_local error:", e)
             pre_cleaned = raw_content
 
-        # Run heavy LLM cleaning (this may take time)
         cleaned_final = pre_cleaned
         try:
             t0 = time.time()
@@ -186,7 +161,6 @@ def background_process_document(inserted_id):
         except Exception as e:
             print("LLM cleaning failed, keeping pre-cleaned content:", e)
 
-        # Update document (content + updatedAt) and mark is_sync False (will be set true by mainrag when indexing)
         try:
             collection.update_one(
                 {"_id": doc["_id"]},
@@ -198,7 +172,6 @@ def background_process_document(inserted_id):
 
         client.close()
 
-        # Trigger RAG indexing in detached process (non-blocking)
         try:
             p = multiprocessing.Process(target=_run_mainrag_detached)
             p.daemon = True
@@ -248,14 +221,12 @@ async def websocket_monitor(websocket: WebSocket):
     monitor_connections.add(websocket)
     print(f"🔔 Monitor connected: {websocket.client}. Total monitors: {len(monitor_connections)}")
     try:
-        # keep connection alive; monitors may not send messages, but we listen to pings
         while True:
             try:
                 await websocket.receive_text()
             except WebSocketDisconnect:
                 break
             except Exception:
-                # ignore timeouts or non-text pings
                 await asyncio.sleep(1)
     finally:
         try:
@@ -263,6 +234,7 @@ async def websocket_monitor(websocket: WebSocket):
         except Exception:
             pass
         print(f"🔕 Monitor disconnected: {websocket.client}. Total monitors: {len(monitor_connections)}")
+
 
 
 # ========================================================================
@@ -273,43 +245,35 @@ async def websocket_monitor(websocket: WebSocket):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print(f"🔌 Client Connected: {websocket.client}")
+    # assign an internal id for this WS connection
+    connection_uuid = str(uuid.uuid4())
+    CLIENT_METADATA[connection_uuid] = {"ws": websocket, "client_id": None, "user_agent": None, "connected_at": time.time()}
+    print(f"🔌 Client Connected: {websocket.client} (conn_uuid={connection_uuid})")
 
-    async def process_and_respond(wb: WebSocket, message_text: str, request_id: str):
-        """
-        Runs rag.ask in an executor, sends periodic progress events to the client
-        and monitor sockets, and finally sends the completed reply.
-        """
-        # run rag.ask in a thread (non-blocking to event loop)
-        task = asyncio.create_task(asyncio.to_thread(rag.ask, message_text, []))
-
-        # while the task is running, emit progress updates every 0.6s
+    async def process_and_respond(wb: WebSocket, message_text: str, request_id: str, history=None):
+        # (unchanged)
+        task = asyncio.create_task(asyncio.to_thread(rag.ask, message_text, history or []))
         try:
             while not task.done():
                 progress_msg = {"type": "stream", "event": "progress", "request_id": request_id, "message": "generating..."}
                 try:
                     await wb.send_json(progress_msg)
                 except Exception:
-                    # if send fails (client disconnected) we just break
                     break
-                # also notify monitors
                 await broadcast_monitor({"type": "monitor_progress", "request_id": request_id, "message": "generating..."})
                 await asyncio.sleep(0.6)
 
-            # get result
             try:
                 reply_text = await task
             except Exception as e:
                 reply_text = f"System Error: {str(e)}"
 
-            # final reply event
             final_msg = {"type": "reply", "request_id": request_id, "reply": reply_text}
             try:
                 await wb.send_json(final_msg)
             except Exception:
                 pass
 
-            # broadcast final to monitors
             await broadcast_monitor({"type": "monitor_reply", "request_id": request_id, "reply": reply_text, "user_message": message_text})
         except Exception as e:
             print("Error in process_and_respond:", e)
@@ -320,37 +284,75 @@ async def websocket_endpoint(websocket: WebSocket):
 
             try:
                 payload = json.loads(raw_data)
-                message = payload.get("message", "")
             except json.JSONDecodeError:
-                message = raw_data
+                payload = {"message": raw_data}
+
+            # handle client hello event (sent by frontend when WS opens)
+            if isinstance(payload, dict) and payload.get("type") == "client_hello":
+                tab_id = payload.get("tab_id") or str(uuid.uuid4())
+                ua = payload.get("user_agent", "")
+                # store mapping: connection_uuid -> tab_id + ua
+                CLIENT_METADATA[connection_uuid]["client_id"] = tab_id
+                CLIENT_METADATA[connection_uuid]["user_agent"] = ua
+                CLIENT_METADATA[connection_uuid]["connected_at"] = time.time()
+                # broadcast to monitors
+                await broadcast_monitor({
+                    "type": "monitor_client_connect",
+                    "client_id": tab_id,
+                    "user_agent": ua,
+                    "timestamp": time.time()
+                })
+                # optionally ack to client (not required)
+                try:
+                    await websocket.send_json({"type": "client_hello_ack", "tab_id": tab_id})
+                except:
+                    pass
+                continue
+
+            # standard message handling (old behavior)
+            message = payload.get("message", "")
+            history = payload.get("history", None)
 
             if not message:
                 continue
 
             print(f"📩 Received (WS): {message}")
 
-            # generate a request id for mapping
             request_id = f"{int(time.time()*1000)}-{os.getpid()}"
 
-            # notify client & monitors: stream start
             try:
                 await websocket.send_json({"type": "stream", "event": "start", "request_id": request_id, "message": "processing"})
             except Exception:
                 pass
-            await broadcast_monitor({"type": "monitor_user_message", "request_id": request_id, "message": message})
+            await broadcast_monitor({"type": "monitor_user_message", "request_id": request_id, "message": message, "client_id": CLIENT_METADATA[connection_uuid].get("client_id"), "user_agent": CLIENT_METADATA[connection_uuid].get("user_agent")})
 
-            # start processing in background task (so loop can keep receiving if needed)
-            asyncio.create_task(process_and_respond(websocket, message, request_id))
+            asyncio.create_task(process_and_respond(websocket, message, request_id, history))
 
     except WebSocketDisconnect:
-        print(f"🔌 Client Disconnected: {websocket.client}")
+        print(f"🔌 Client Disconnected: {websocket.client} (conn_uuid={connection_uuid})")
+        # on disconnect, if we have client_id info, broadcast disconnect
+        meta = CLIENT_METADATA.get(connection_uuid)
+        if meta and meta.get("client_id"):
+            try:
+                await broadcast_monitor({
+                    "type": "monitor_client_disconnect",
+                    "client_id": meta.get("client_id"),
+                    "user_agent": meta.get("user_agent"),
+                    "timestamp": time.time()
+                })
+            except Exception as e:
+                print("Failed broadcasting client_disconnect:", e)
+        # cleanup
+        try:
+            del CLIENT_METADATA[connection_uuid]
+        except KeyError:
+            pass
     except Exception as e:
         print(f"⚠️ WebSocket Error: {e}")
         try:
             await websocket.close()
         except:
             pass
-
 
 # ========================================================================
 # HTTP endpoints (reply unchanged)

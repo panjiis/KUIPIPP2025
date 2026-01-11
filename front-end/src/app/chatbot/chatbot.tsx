@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import Image from 'next/image'; // Import Image dari Next.js
+import Image from 'next/image';
 import ReCAPTCHA from 'react-google-recaptcha';
 import {
   Send,
@@ -36,8 +36,34 @@ interface CodeBlockProps extends React.HTMLAttributes<HTMLElement> {
 }
 
 interface CategoryStructure {
-  _id: string; 
-  topics: string[]; 
+  _id: string;
+  topics: string[];
+}
+
+// ------------------------------------------------------------
+// HELPERS
+// ------------------------------------------------------------
+function generateTabId(): string {
+  try {
+    if (
+      typeof window !== 'undefined' &&
+      window.crypto &&
+      'randomUUID' in window.crypto
+    ) {
+      return window.crypto.randomUUID();
+    }
+  } catch {
+    // ignore
+  }
+  return `tab-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+function safeJsonParse(s: string) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
 }
 
 // ------------------------------------------------------------
@@ -75,10 +101,17 @@ export default function Chatbot() {
 
   // WebSocket State
   const [ws, setWs] = useState<WebSocket | null>(null);
-  const [wsStatus, setWsStatus] = useState<'CONNECTING' | 'OPEN' | 'CLOSED'>('CLOSED');
+  const [wsStatus, setWsStatus] = useState<'CONNECTING' | 'OPEN' | 'CLOSED'>(
+    'CLOSED'
+  );
 
   // Map request_id -> message index in messages array (for streaming updates)
   const streamMapRef = useRef<Record<string, number>>({});
+
+  // per-tab id & hello flag & heartbeat interval ref
+  const tabIdRef = useRef<string>(generateTabId());
+  const helloSentRef = useRef<boolean>(false);
+  const heartbeatIntervalRef = useRef<number | null>(null);
 
   // ------------------------------------------------------------
   // THEME LOGIC
@@ -86,7 +119,9 @@ export default function Chatbot() {
   useEffect(() => {
     setMounted(true);
     const savedTheme = localStorage.getItem('theme');
-    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const systemPrefersDark = window.matchMedia(
+      '(prefers-color-scheme: dark)'
+    ).matches;
 
     if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) {
       setIsDarkMode(true);
@@ -114,14 +149,11 @@ export default function Chatbot() {
   // ------------------------------------------------------------
   const logChatToBackend = useCallback(
     async (sender: 'user' | 'bot', msg: string) => {
-      // BACA DARI REF (Selalu fresh value)
       if (userConsentRef.current !== 'true') {
-          console.warn('Logging skipped: Consent is', userConsentRef.current);
-          return;
+        console.warn('Logging skipped: Consent is', userConsentRef.current);
+        return;
       }
-
       try {
-        console.log(`📝 Saving ${sender} msg to DB...`); // Debug log
         await fetch('http://localhost:5000/api/send-msg', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -132,50 +164,85 @@ export default function Chatbot() {
         console.warn('Failed logging chat', error);
       }
     },
-    [] // Dependency kosong agar fungsi stabil (tidak re-create)
+    []
   );
 
   // ------------------------------------------------------------
-  // WEBSOCKET (DIPERBAIKI -> support stream events)
+  // WEBSOCKET (stream events + client_hello + heartbeat)
   // ------------------------------------------------------------
- 
   useEffect(() => {
     const socket = new WebSocket('ws://localhost:8080/ws');
 
     socket.onopen = () => {
       console.log('✅ Connected to AI Server (WS)');
       setWsStatus('OPEN');
+
+      // send client_hello once
+      if (!helloSentRef.current) {
+        const hello = {
+          type: 'client_hello',
+          tab_id: tabIdRef.current,
+          user_agent:
+            typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+        };
+        try {
+          socket.send(JSON.stringify(hello));
+          helloSentRef.current = true;
+        } catch (e) {
+          console.warn('Failed to send hello', e);
+        }
+      }
+
+      // start heartbeat every 30s to help server detect live tabs
+      try {
+        if (heartbeatIntervalRef.current == null) {
+          heartbeatIntervalRef.current = window.setInterval(() => {
+            try {
+              const hb = {
+                type: 'client_heartbeat',
+                tab_id: tabIdRef.current,
+                user_agent: navigator.userAgent,
+              };
+              socket.send(JSON.stringify(hb));
+            } catch {
+              // ignore
+            }
+          }, 30_000);
+        }
+      } catch {
+        // ignore if window not available
+      }
     };
 
     socket.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = safeJsonParse(event.data);
+        if (!data) return;
 
-        // STREAMING / MONITORING events
+        // STREAMING / MONITORING events (server -> client)
         if (data.type === 'stream') {
           if (data.event === 'start') {
-            // create a placeholder bot message and map it
-            setMessages((prev) => {
-              const newMsg: Message = { sender: 'bot', text: '' };
-              const newArr = [...prev, newMsg];
-              const idx = newArr.length - 1;
-              streamMapRef.current[data.request_id] = idx;
-              return newArr;
-            });
+            if (!(data.request_id in streamMapRef.current)) {
+              setMessages((prev) => {
+                const newMsg: Message = { sender: 'bot', text: '' };
+                const newArr = [...prev, newMsg];
+                const idx = newArr.length - 1;
+                streamMapRef.current[data.request_id] = idx;
+                return newArr;
+              });
+            }
             setLoading(true);
             return;
           }
 
           if (data.event === 'progress') {
-            // update placeholder with progress indicator (do not create another message)
             const idx = streamMapRef.current[data.request_id];
             if (typeof idx === 'number') {
               setMessages((prev) => {
                 const arr = [...prev];
                 const cur = arr[idx] || { sender: 'bot', text: '' };
-                // show a gentle "typing" suffix or brief message update
-                const newText = (cur.text || '') + (cur.text.endsWith('⏳') ? '' : '⏳');
-                arr[idx] = { ...cur, text: newText };
+                const base = (cur.text || '').replace(/⏳+$/g, '');
+                arr[idx] = { ...cur, text: base + ' ⏳' };
                 return arr;
               });
             }
@@ -187,17 +254,17 @@ export default function Chatbot() {
         if (data.type === 'reply') {
           const idx = streamMapRef.current[data.request_id];
           if (typeof idx === 'number') {
-            // update existing placeholder with final content
             setMessages((prev) => {
               const arr = [...prev];
               arr[idx] = { sender: 'bot', text: data.reply || '' };
               return arr;
             });
-            // cleanup mapping
             delete streamMapRef.current[data.request_id];
           } else {
-            // fallback: append if mapping not found
-            setMessages((prev) => [...prev, { sender: 'bot', text: data.reply || '' }]);
+            setMessages((prev) => [
+              ...prev,
+              { sender: 'bot', text: data.reply || '' },
+            ]);
           }
           setLoading(false);
           logChatToBackend('bot', data.reply || '');
@@ -210,6 +277,11 @@ export default function Chatbot() {
           setLoading(false);
           logChatToBackend('bot', data.Reply);
         }
+
+        // server ack for hello (optional)
+        if (data.type === 'client_hello_ack' && data.tab_id) {
+          tabIdRef.current = data.tab_id;
+        }
       } catch (e) {
         console.error('WS Parse Error:', e);
       }
@@ -218,6 +290,11 @@ export default function Chatbot() {
     socket.onclose = () => {
       console.log('❌ Disconnected from AI Server');
       setWsStatus('CLOSED');
+      // clear heartbeat
+      if (heartbeatIntervalRef.current != null) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
     };
 
     socket.onerror = (err) => {
@@ -227,7 +304,31 @@ export default function Chatbot() {
     };
 
     setWs(socket);
-    return () => socket.close();
+
+    // send a final beacon on unload (best-effort)
+    const handleBeforeUnload = () => {
+      try {
+        const payload = { type: 'client_goodbye', tab_id: tabIdRef.current };
+        socket.send(JSON.stringify(payload));
+      } catch {
+        // best-effort, may fail when tab closing
+      }
+      try {
+        socket.close();
+      } catch {}
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      try {
+        if (heartbeatIntervalRef.current != null) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+        socket.close();
+      } catch {}
+    };
   }, [logChatToBackend]);
 
   // ------------------------------------------------------------
@@ -284,7 +385,7 @@ export default function Chatbot() {
     setUserConsent(hasAgreed ? 'true' : 'false');
     const val = hasAgreed ? 'true' : 'false';
     setUserConsent(val);
-    userConsentRef.current = val; // UPDATE REF DI SINI
+    userConsentRef.current = val; // UPDATE REF
     setShowConsentModal(false);
     if (!hasAgreed) {
       setMessages((prev) => [
@@ -329,13 +430,17 @@ export default function Chatbot() {
           });
           botResponse += `\n`;
         });
-        botResponse += '\n*Silakan ketik salah satu topik di atas untuk detail.*';
+        botResponse +=
+          '\n*Silakan ketik salah satu topik di atas untuk detail.*';
       }
       setMessages((prev) => [...prev, { sender: 'bot', text: botResponse }]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        { sender: 'bot', text: '⚠️ Maaf, gagal memuat daftar topik. Silakan coba lagi.' },
+        {
+          sender: 'bot',
+          text: '⚠️ Maaf, gagal memuat daftar topik. Silakan coba lagi.',
+        },
       ]);
     } finally {
       setLoading(false);
@@ -345,12 +450,26 @@ export default function Chatbot() {
   // ------------------------------------------------------------
   // SEND LOGIC
   // ------------------------------------------------------------
+  const buildHistoryPayload = (additionalUserText?: string) => {
+    const MAX = 8;
+    let hist = [...messages];
+    if (additionalUserText)
+      hist = [...hist, { sender: 'user', text: additionalUserText }];
+    const last = hist.slice(-MAX);
+    return last.map((m) => ({
+      role: m.sender === 'user' ? 'user' : 'assistant',
+      content: m.text,
+    }));
+  };
+
   const handleSend = async () => {
     if (!input.trim() || showConsentModal || !isCaptchaVerified) return;
     if (wsStatus !== 'OPEN' || !ws) {
       setMessages((prev) => [
         ...prev,
-        { sender: 'bot', text: '⚠️ Koneksi ke server terputus. Silakan refresh halaman.',
+        {
+          sender: 'bot',
+          text: '⚠️ Koneksi ke server terputus. Silakan refresh halaman.',
         },
       ]);
       return;
@@ -363,7 +482,13 @@ export default function Chatbot() {
     setLoading(true);
 
     try {
-      ws.send(JSON.stringify({ message: userMsg }));
+      const historyPayload = buildHistoryPayload(userMsg);
+      const payload = {
+        message: userMsg,
+        history: historyPayload,
+        tab_id: tabIdRef.current,
+      };
+      ws!.send(JSON.stringify(payload));
       logChatToBackend('user', userMsg);
     } catch (e) {
       console.error('WS send error', e);
@@ -378,14 +503,23 @@ export default function Chatbot() {
 
     setMessages((prev) => {
       const arr = [...prev];
-      if (arr.length > 0 && arr[arr.length - 1].sender === 'bot') {
-        arr.pop();
-      }
+      if (arr.length > 0 && arr[arr.length - 1].sender === 'bot') arr.pop();
       return arr;
     });
 
     setLoading(true);
-    ws.send(JSON.stringify({ message: lastUser.text }));
+    try {
+      const historyPayload = buildHistoryPayload(lastUser.text);
+      const payload = {
+        message: lastUser.text,
+        history: historyPayload,
+        tab_id: tabIdRef.current,
+      };
+      ws!.send(JSON.stringify(payload));
+    } catch (e) {
+      console.error('WS send error', e);
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -395,7 +529,12 @@ export default function Chatbot() {
   // ------------------------------------------------------------
   // CODE BLOCK COMPONENT
   // ------------------------------------------------------------
-  const CodeBlock = ({ inline, className, children, ...props }: CodeBlockProps) => {
+  const CodeBlock = ({
+    inline,
+    className,
+    children,
+    ...props
+  }: CodeBlockProps) => {
     const [copied, setCopied] = useState(false);
     const match = /language-(\w+)/.exec(className || '');
 
@@ -407,8 +546,14 @@ export default function Chatbot() {
 
     if (!inline) {
       return (
-        <div className='relative group my-4 rounded-lg overflow-hidden border bg-black/5 dark:bg-black/30' style={{ borderColor: 'var(--border)' }}>
-          <div className='flex justify-between items-center px-4 py-2 bg-black/5 dark:bg-white/5 border-b' style={{borderColor: 'var(--border)'}}>
+        <div
+          className='relative group my-4 rounded-lg overflow-hidden border bg-black/5 dark:bg-black/30'
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <div
+            className='flex justify-between items-center px-4 py-2 bg-black/5 dark:bg-white/5 border-b'
+            style={{ borderColor: 'var(--border)' }}
+          >
             <span className='text-xs font-mono opacity-70'>
               {match ? match[1] : 'text'}
             </span>
@@ -417,10 +562,17 @@ export default function Chatbot() {
               className='p-1.5 hover:bg-black/10 dark:hover:bg-white/10 rounded transition-colors'
               title='Copy Code'
             >
-              {copied ? <Check className='w-3.5 h-3.5 text-green-500' /> : <Copy className='w-3.5 h-3.5 opacity-70' />}
+              {copied ? (
+                <Check className='w-3.5 h-3.5 text-green-500' />
+              ) : (
+                <Copy className='w-3.5 h-3.5 opacity-70' />
+              )}
             </button>
           </div>
-          <div className='p-4 overflow-x-auto text-sm font-mono' style={{ color: 'var(--foreground)' }}>
+          <div
+            className='p-4 overflow-x-auto text-sm font-mono'
+            style={{ color: 'var(--foreground)' }}
+          >
             <code className={className} {...props}>
               {children}
             </code>
@@ -442,19 +594,24 @@ export default function Chatbot() {
   if (!mounted) return null;
 
   // ------------------------------------------------------------
-  // UI RENDER
+  // UI RENDER (full UI kept as before)
   // ------------------------------------------------------------
   return (
     <section className='min-h-screen flex items-center justify-center p-4 sm:p-6 font-sans transition-colors duration-300'>
-      
-      {/* --- CONSENT MODAL --- */}
+      {/* CONSENT MODAL */}
       {showConsentModal && (
         <div className='fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-300'>
           <div className='glass-card p-6 max-w-sm w-full shadow-2xl ring-1 ring-white/20'>
-            <h3 className='text-xl font-bold mb-3' style={{ color: 'var(--foreground)' }}>
+            <h3
+              className='text-xl font-bold mb-3'
+              style={{ color: 'var(--foreground)' }}
+            >
               Privacy Consent
             </h3>
-            <p className='text-sm mb-6 leading-relaxed opacity-90' style={{ color: 'var(--foreground)' }}>
+            <p
+              className='text-sm mb-6 leading-relaxed opacity-90'
+              style={{ color: 'var(--foreground)' }}
+            >
               To improve the quality of AI answers, we need permission to store
               this conversation history anonymously.
             </p>
@@ -468,7 +625,10 @@ export default function Chatbot() {
               <button
                 onClick={() => handleConsent(true)}
                 className='flex-1 py-2.5 rounded-xl text-sm font-medium shadow-lg hover:shadow-xl transition-all'
-                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+                style={{
+                  backgroundColor: 'var(--primary)',
+                  color: 'var(--primary-foreground)',
+                }}
               >
                 Allow
               </button>
@@ -477,123 +637,126 @@ export default function Chatbot() {
         </div>
       )}
 
-      {/* --- MAIN CHAT CONTAINER --- */}
-      <div 
+      {/* MAIN CHAT CONTAINER */}
+      <div
         className='w-full max-w-5xl glass-card flex flex-col h-[85vh] overflow-hidden shadow-2xl relative'
-        style={{ 
-            borderColor: 'var(--border)', 
-            borderWidth: '1px',
-            boxShadow: '0 20px 50px -12px rgba(0, 0, 0, 0.25)' 
+        style={{
+          borderColor: 'var(--border)',
+          borderWidth: '1px',
+          boxShadow: '0 20px 50px -12px rgba(0, 0, 0, 0.25)',
         }}
       >
-        
-        {/* --- HEADER --- */}
-        <header 
-          className='flex items-center justify-between px-6 py-4 border-b backdrop-blur-xl z-10' 
-          style={{ 
-            borderColor: 'var(--border)', 
-            background: 'linear-gradient(to right, rgba(255,255,255,0.4), rgba(255,255,255,0.1))'
+        {/* HEADER */}
+        <header
+          className='flex items-center justify-between px-6 py-4 border-b backdrop-blur-xl z-10'
+          style={{
+            borderColor: 'var(--border)',
+            background:
+              'linear-gradient(to right, rgba(255,255,255,0.4), rgba(255,255,255,0.1))',
           }}
         >
           <div className='flex items-center gap-4'>
             <div className='relative'>
-                {/* HEADER ICON
-                  - Menggunakan 'bg-white' agar logo transparan terlihat jelas
-                  - 'object-contain' agar gambar tidak terpotong 
-                  - Padding 'p-1' agar ada ruang napas
-                */}
-                <div 
-                    className='w-11 h-11 rounded-xl shadow-lg flex items-center justify-center overflow-hidden bg-white relative' 
-                    style={{ border: '1px solid var(--border)' }}
-                >
-                    <Image 
-                      src="/Logo1.jpg" 
-                      alt="Bot Logo" 
-                      fill
-                      sizes="44px"
-                      className="object-contain p-1" 
-                    />
-                </div>
-                
-                {/* Online Status Dot */}
-                <div className='absolute -bottom-1 -right-1 flex h-3.5 w-3.5'>
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${wsStatus === 'OPEN' ? 'bg-emerald-400' : 'bg-red-400'}`}></span>
-                    <span className={`relative inline-flex rounded-full h-3.5 w-3.5 border-2 border-white dark:border-gray-900 ${wsStatus === 'OPEN' ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-                </div>
+              <div
+                className='w-11 h-11 rounded-xl shadow-lg flex items-center justify-center overflow-hidden bg-white relative'
+                style={{ border: '1px solid var(--border)' }}
+              >
+                <Image
+                  src='/Logo1.jpg'
+                  alt='Bot Logo'
+                  fill
+                  sizes='44px'
+                  className='object-contain p-1'
+                />
+              </div>
+              <div className='absolute -bottom-1 -right-1 flex h-3.5 w-3.5'>
+                <span
+                  className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    wsStatus === 'OPEN' ? 'bg-emerald-400' : 'bg-red-400'
+                  }`}
+                ></span>
+                <span
+                  className={`relative inline-flex rounded-full h-3.5 w-3.5 border-2 border-white dark:border-gray-900 ${
+                    wsStatus === 'OPEN' ? 'bg-emerald-500' : 'bg-red-500'
+                  }`}
+                ></span>
+              </div>
             </div>
-            
             <div>
-              <h1 className='text-lg font-bold tracking-tight' style={{ color: 'var(--foreground)' }}>
+              <h1
+                className='text-lg font-bold tracking-tight'
+                style={{ color: 'var(--foreground)' }}
+              >
                 KUI UNPAD Assistant
               </h1>
-              <p className='text-xs font-medium opacity-70 flex items-center gap-1.5' style={{ color: 'var(--foreground)' }}>
-                <span className='w-1.5 h-1.5 rounded-full bg-current opacity-50'></span>
+              <p
+                className='text-xs font-medium opacity-70 flex items-center gap-1.5'
+                style={{ color: 'var(--foreground)' }}
+              >
+                <span className='w-1.5 h-1.5 rounded-full bg-current opacity-50'></span>{' '}
                 Universitas Padjadjaran
               </p>
             </div>
           </div>
-
-          {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
-            className="p-2.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-all border border-transparent hover:border-border"
+            className='p-2.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition-all border border-transparent hover:border-border'
           >
             {isDarkMode ? (
-              <Sun className="w-5 h-5" style={{ color: 'var(--foreground)' }} />
+              <Sun className='w-5 h-5' style={{ color: 'var(--foreground)' }} />
             ) : (
-              <Moon className="w-5 h-5" style={{ color: 'var(--foreground)' }} />
+              <Moon
+                className='w-5 h-5'
+                style={{ color: 'var(--foreground)' }}
+              />
             )}
           </button>
         </header>
 
-        {/* --- CHAT AREA --- */}
+        {/* CHAT AREA */}
         <div className='flex-1 overflow-y-auto p-4 sm:p-6 space-y-8 scroll-smooth custom-scrollbar'>
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex gap-4 group ${msg.sender === 'user' ? 'flex-row-reverse' : ''}`}
+              className={`flex gap-4 group ${
+                msg.sender === 'user' ? 'flex-row-reverse' : ''
+              }`}
             >
-              {/* AVATAR CHAT */}
               <div
-                className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-md border overflow-hidden relative bg-white`}
-                style={{
-                  borderColor: 'var(--border)'
-                }}
+                className='shrink-0 w-10 h-10 rounded-full flex items-center justify-center shadow-md border overflow-hidden relative bg-white'
+                style={{ borderColor: 'var(--border)' }}
               >
-                {/* USER & BOT AVATARS
-                  - Menggunakan 'bg-white' pada container di atas
-                  - 'object-contain' agar logo full
-                */}
-                <Image 
-                  src={msg.sender === 'user' ? '/Logo.jpg' : '/Logo1.jpg'} 
-                  alt={msg.sender} 
+                <Image
+                  src={msg.sender === 'user' ? '/Logo.jpg' : '/Logo1.jpg'}
+                  alt={msg.sender}
                   fill
-                  sizes="40px"
-                  className="object-contain p-0.5" // P-0.5 memberi sedikit jarak dari pinggir lingkaran
+                  sizes='40px'
+                  className='object-contain p-0.5'
                 />
               </div>
-
-              {/* Message Wrapper */}
-              <div className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
-                
-                {/* BUBBLE */}
+              <div
+                className={`flex flex-col max-w-[85%] sm:max-w-[75%] ${
+                  msg.sender === 'user' ? 'items-end' : 'items-start'
+                }`}
+              >
                 <div
                   className={`px-5 py-4 rounded-2xl text-sm leading-relaxed shadow-sm relative ${
-                      msg.sender === 'user' 
-                      ? 'rounded-tr-none text-white' 
+                    msg.sender === 'user'
+                      ? 'rounded-tr-none text-white'
                       : 'rounded-tl-none border'
                   }`}
                   style={
                     msg.sender === 'user'
-                      ? { 
-                          background: 'linear-gradient(135deg, var(--primary), var(--accent))', 
+                      ? {
+                          background:
+                            'linear-gradient(135deg, var(--primary), var(--accent))',
                           color: 'var(--primary-foreground)',
-                          boxShadow: '0 4px 15px -3px rgba(0,0,0,0.1)'
+                          boxShadow: '0 4px 15px -3px rgba(0,0,0,0.1)',
                         }
-                      : { 
-                          background: 'var(--card-bg)', 
-                          color: 'var(--foreground)', 
-                          borderColor: 'var(--border)' 
+                      : {
+                          background: 'var(--card-bg)',
+                          color: 'var(--foreground)',
+                          borderColor: 'var(--border)',
                         }
                   }
                 >
@@ -602,51 +765,123 @@ export default function Chatbot() {
                     rehypePlugins={[rehypeRaw]}
                     components={{
                       table: ({ ...props }) => (
-                        <div className='overflow-x-auto my-3 border rounded-lg bg-black/5 dark:bg-white/5' style={{ borderColor: 'var(--border)' }}>
-                          <table className='min-w-full divide-y text-left text-xs' style={{ borderColor: 'var(--border)' }} {...props} />
+                        <div
+                          className='overflow-x-auto my-3 border rounded-lg bg-black/5 dark:bg-white/5'
+                          style={{ borderColor: 'var(--border)' }}
+                        >
+                          <table
+                            className='min-w-full divide-y text-left text-xs'
+                            style={{ borderColor: 'var(--border)' }}
+                            {...props}
+                          />
                         </div>
                       ),
-                      thead: ({ ...props }) => <thead className='bg-black/5 dark:bg-white/5' {...props} />,
-                      th: ({ ...props }) => <th className='px-3 py-2 font-semibold opacity-80' {...props} />,
-                      tbody: ({ ...props }) => <tbody className='divide-y' style={{ borderColor: 'var(--border)' }} {...props} />,
-                      td: ({ ...props }) => <td className='px-3 py-2 whitespace-pre-wrap align-top' {...props} />,
+                      thead: ({ ...props }) => (
+                        <thead
+                          className='bg-black/5 dark:bg-white/5'
+                          {...props}
+                        />
+                      ),
+                      th: ({ ...props }) => (
+                        <th
+                          className='px-3 py-2 font-semibold opacity-80'
+                          {...props}
+                        />
+                      ),
+                      tbody: ({ ...props }) => (
+                        <tbody
+                          className='divide-y'
+                          style={{ borderColor: 'var(--border)' }}
+                          {...props}
+                        />
+                      ),
+                      td: ({ ...props }) => (
+                        <td
+                          className='px-3 py-2 whitespace-pre-wrap align-top'
+                          {...props}
+                        />
+                      ),
                       a: (props) => (
-                        <a {...props} target='_blank' rel='noopener noreferrer' className="underline underline-offset-2 font-semibold opacity-90 hover:opacity-100" />
+                        <a
+                          {...props}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='underline underline-offset-2 font-semibold opacity-90 hover:opacity-100'
+                        />
                       ),
                       p: (props) => <p className='mb-2 last:mb-0' {...props} />,
-                      ul: (props) => <ul className='list-disc ml-4 mb-2 space-y-1' {...props} />,
-                      ol: (props) => <ol className='list-decimal ml-4 mb-2 space-y-1' {...props} />,
+                      ul: (props) => (
+                        <ul
+                          className='list-disc ml-4 mb-2 space-y-1'
+                          {...props}
+                        />
+                      ),
+                      ol: (props) => (
+                        <ol
+                          className='list-decimal ml-4 mb-2 space-y-1'
+                          {...props}
+                        />
+                      ),
                       li: (props) => <li className='pl-1' {...props} />,
-                      strong: (props) => <strong className='font-bold' {...props} />,
-                      h1: (props) => <h1 className='text-lg font-bold mt-2 mb-2' {...props} />,
-                      h2: (props) => <h2 className='text-base font-bold mt-2 mb-2' {...props} />,
-                      h3: (props) => <h3 className='text-sm font-bold mt-2 mb-1' {...props} />,
+                      strong: (props) => (
+                        <strong className='font-bold' {...props} />
+                      ),
+                      h1: (props) => (
+                        <h1
+                          className='text-lg font-bold mt-2 mb-2'
+                          {...props}
+                        />
+                      ),
+                      h2: (props) => (
+                        <h2
+                          className='text-base font-bold mt-2 mb-2'
+                          {...props}
+                        />
+                      ),
+                      h3: (props) => (
+                        <h3
+                          className='text-sm font-bold mt-2 mb-1'
+                          {...props}
+                        />
+                      ),
                       code: CodeBlock as React.ComponentType<CodeBlockProps>,
                       blockquote: (props) => (
                         <blockquote
                           className='border-l-4 pl-4 py-1 my-2 italic opacity-80'
-                          style={{ borderColor: 'currentColor', background: 'rgba(255,255,255,0.1)' }}
+                          style={{
+                            borderColor: 'currentColor',
+                            background: 'rgba(255,255,255,0.1)',
+                          }}
                           {...props}
                         />
                       ),
                     }}
                   >
-                    {typeof msg.text === 'string' ? msg.text : String(msg.text || '')}
+                    {typeof msg.text === 'string'
+                      ? msg.text
+                      : String(msg.text || '')}
                   </ReactMarkdown>
                 </div>
 
-                {/* Footer Message (Copy & Regenerate) - ALWAYS VISIBLE */}
                 {msg.sender === 'bot' && (
                   <div className='flex items-center gap-3 mt-2 ml-1'>
                     <button
                       onClick={() => handleCopyMessage(msg.text, i)}
                       className='flex items-center gap-1 text-[10px] font-medium hover:text-emerald-500 transition-colors'
-                      style={{ color: copiedIndex === i ? '#10B981' : 'var(--muted-foreground)' }}
+                      style={{
+                        color:
+                          copiedIndex === i
+                            ? '#10B981'
+                            : 'var(--muted-foreground)',
+                      }}
                     >
-                      {copiedIndex === i ? <Check className='w-3 h-3' /> : <Copy className='w-3 h-3' />}
+                      {copiedIndex === i ? (
+                        <Check className='w-3 h-3' />
+                      ) : (
+                        <Copy className='w-3 h-3' />
+                      )}
                       <span>{copiedIndex === i ? 'Copied' : 'Copy'}</span>
                     </button>
-
                     {i === messages.length - 1 && !loading && (
                       <button
                         onClick={handleRetry}
@@ -663,22 +898,39 @@ export default function Chatbot() {
             </div>
           ))}
 
-          {/* Loading Indicator */}
           {loading && (
             <div className='flex gap-4 animate-pulse'>
-              <div className='w-10 h-10 rounded-full border flex items-center justify-center bg-white overflow-hidden relative' style={{ borderColor: 'var(--border)' }}>
-                 <Image 
-                    src="/Logo1.jpg" 
-                    alt="Bot Loading" 
-                    fill
-                    sizes="40px"
-                    className="object-contain p-0.5" 
-                 />
+              <div
+                className='w-10 h-10 rounded-full border flex items-center justify-center bg-white overflow-hidden relative'
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <Image
+                  src='/Logo1.jpg'
+                  alt='Bot Loading'
+                  fill
+                  sizes='40px'
+                  className='object-contain p-0.5'
+                />
               </div>
-              <div className='px-5 py-4 rounded-2xl rounded-tl-none border flex items-center gap-2' style={{ background: 'var(--card-bg)', borderColor: 'var(--border)' }}>
-                <span className='w-2 h-2 rounded-full animate-bounce' style={{ background: 'var(--primary)' }}></span>
-                <span className='w-2 h-2 rounded-full animate-bounce delay-150' style={{ background: 'var(--primary)', opacity: 0.7 }}></span>
-                <span className='w-2 h-2 rounded-full animate-bounce delay-300' style={{ background: 'var(--primary)', opacity: 0.4 }}></span>
+              <div
+                className='px-5 py-4 rounded-2xl rounded-tl-none border flex items-center gap-2'
+                style={{
+                  background: 'var(--card-bg)',
+                  borderColor: 'var(--border)',
+                }}
+              >
+                <span
+                  className='w-2 h-2 rounded-full animate-bounce'
+                  style={{ background: 'var(--primary)' }}
+                ></span>
+                <span
+                  className='w-2 h-2 rounded-full animate-bounce delay-150'
+                  style={{ background: 'var(--primary)', opacity: 0.7 }}
+                ></span>
+                <span
+                  className='w-2 h-2 rounded-full animate-bounce delay-300'
+                  style={{ background: 'var(--primary)', opacity: 0.4 }}
+                ></span>
               </div>
             </div>
           )}
@@ -686,9 +938,12 @@ export default function Chatbot() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* --- CAPTCHA AREA --- */}
+        {/* CAPTCHA AREA */}
         {!showConsentModal && !isCaptchaVerified && (
-          <div className='p-4 border-t flex justify-center bg-black/5 dark:bg-black/20' style={{ borderColor: 'var(--border)' }}>
+          <div
+            className='p-4 border-t flex justify-center bg-black/5 dark:bg-black/20'
+            style={{ borderColor: 'var(--border)' }}
+          >
             {recaptchaSiteKey ? (
               <ReCAPTCHA
                 sitekey={recaptchaSiteKey}
@@ -704,31 +959,42 @@ export default function Chatbot() {
           </div>
         )}
 
-        {/* --- FOOTER INPUT AREA --- */}
-        <div 
-            className='p-5 border-t backdrop-blur-md' 
-            style={{ 
-                borderColor: 'var(--border)',
-                background: 'linear-gradient(to top, var(--card-bg), rgba(255,255,255,0.0))'
-            }}
+        {/* FOOTER INPUT AREA */}
+        <div
+          className='p-5 border-t backdrop-blur-md'
+          style={{
+            borderColor: 'var(--border)',
+            background:
+              'linear-gradient(to top, var(--card-bg), rgba(255,255,255,0.0))',
+          }}
         >
-          {/* Suggestion Chips */}
           {showTopicSuggestion && isCaptchaVerified && !loading && (
             <div className='flex items-center justify-between bg-black/5 dark:bg-white/5 px-4 py-2 rounded-lg mb-4 border border-transparent hover:border-border transition-colors'>
-              <div className='flex items-center gap-2 text-xs sm:text-sm opacity-80' style={{ color: 'var(--foreground)' }}>
+              <div
+                className='flex items-center gap-2 text-xs sm:text-sm opacity-80'
+                style={{ color: 'var(--foreground)' }}
+              >
                 <BookOpen className='w-4 h-4 text-amber-500' />
-                <span>Not sure what to ask? Check out the available topics.</span>
+                <span>
+                  Not sure what to ask? Check out the available topics.
+                </span>
               </div>
               <div className='flex items-center gap-2'>
                 <button
                   onClick={handleRequestTopics}
                   className='text-xs font-bold px-3 py-1.5 rounded-md hover:opacity-80 transition-opacity'
-                  style={{ background: 'var(--secondary)', color: 'var(--secondary-foreground)' }}
+                  style={{
+                    background: 'var(--secondary)',
+                    color: 'var(--secondary-foreground)',
+                  }}
                 >
                   View Topics
                 </button>
-                <button onClick={() => setShowTopicSuggestion(false)} className='p-1 hover:bg-black/10 rounded-full transition-colors'>
-                    <X className='w-4 h-4 opacity-50' />
+                <button
+                  onClick={() => setShowTopicSuggestion(false)}
+                  className='p-1 hover:bg-black/10 rounded-full transition-colors'
+                >
+                  <X className='w-4 h-4 opacity-50' />
                 </button>
               </div>
             </div>
@@ -745,25 +1011,38 @@ export default function Chatbot() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              disabled={loading || showConsentModal || !isCaptchaVerified || wsStatus !== 'OPEN'}
+              disabled={
+                loading ||
+                showConsentModal ||
+                !isCaptchaVerified ||
+                wsStatus !== 'OPEN'
+              }
               className='w-full pl-6 pr-14 py-4 rounded-full outline-none text-sm transition-all shadow-inner focus:ring-2'
-              style={{
-                background: isDarkMode ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.8)',
-                border: '1px solid var(--border)',
-                color: 'var(--foreground)',
-                '--tw-ring-color': 'var(--primary)',
-                '--tw-ring-opacity': '0.3'
-              } as React.CSSProperties}
+              style={
+                {
+                  background: isDarkMode
+                    ? 'rgba(0,0,0,0.3)'
+                    : 'rgba(255,255,255,0.8)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--foreground)',
+                } as React.CSSProperties
+              }
             />
-
             <div className='absolute right-2'>
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || loading || !isCaptchaVerified || wsStatus !== 'OPEN'}
+                disabled={
+                  !input.trim() ||
+                  loading ||
+                  !isCaptchaVerified ||
+                  wsStatus !== 'OPEN'
+                }
                 className='p-2.5 rounded-full hover:scale-105 active:scale-95 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed'
                 style={{
                   background: input.trim() ? 'var(--primary)' : 'var(--muted)',
-                  color: input.trim() ? 'var(--primary-foreground)' : 'var(--muted-foreground)'
+                  color: input.trim()
+                    ? 'var(--primary-foreground)'
+                    : 'var(--muted-foreground)',
                 }}
               >
                 {loading ? (
@@ -775,8 +1054,12 @@ export default function Chatbot() {
             </div>
           </div>
 
-          <p className='text-[10px] text-center mt-3 opacity-60 font-medium' style={{ color: 'var(--foreground)' }}>
-            AI dapat membuat kesalahan. Mohon verifikasi informasi penting sebelum menggunakannya.
+          <p
+            className='text-[10px] text-center mt-3 opacity-60 font-medium'
+            style={{ color: 'var(--foreground)' }}
+          >
+            AI can make mistakes. Please verify important information before
+            using it.
           </p>
         </div>
       </div>

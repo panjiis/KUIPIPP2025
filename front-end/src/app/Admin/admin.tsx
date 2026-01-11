@@ -15,6 +15,7 @@ import {
   UploadCloud,
   Settings,
   Menu,
+  Monitor,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,6 +30,7 @@ import KnowledgeView from './knowledge-view';
 import ManageAdminView from './manage-admin-view';
 import RagDetailView from './rag-detail-view';
 import SettingsView from './settings-view';
+import MonitorView from './Monitor-view';
 
 // --- INTERFACES ---
 interface ChatSession {
@@ -73,7 +75,8 @@ type ActiveView =
   | 'knowledge'
   | 'manageAdmin'
   | 'ragUpload'
-  | 'settings';
+  | 'settings'
+  | 'monitor';
 
 interface MonitorEvent {
   ts: number;
@@ -196,6 +199,11 @@ const AdminSidebar = ({
       view: 'ragUpload' as ActiveView,
       icon: UploadCloud,
       label: 'Upload & Auto-RAG',
+    },
+    {
+      view: 'monitor' as ActiveView,
+      icon: Monitor,
+      label: 'Live Monitor',
     },
     { view: 'settings' as ActiveView, icon: Settings, label: 'Settings' },
   ];
@@ -887,6 +895,8 @@ export default function AdminDashboard() {
         ) : (
           <ChatHistoryView />
         );
+      case 'monitor':
+        return <MonitorView />;
       case 'settings':
         return <SettingsView />;
       default:
@@ -906,8 +916,6 @@ export default function AdminDashboard() {
       />
       {/* Main Content Area */}
       <main className='flex-1 overflow-hidden relative'>{renderView()}</main>
-
-    
     </div>
   );
 }

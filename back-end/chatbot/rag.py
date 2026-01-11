@@ -1,14 +1,10 @@
 # =======================================================================
 # FILE: rag.py
-# Updated to add:
-# - pre_clean_local: fast local heuristics to reduce tokens and fix common PDF artifacts
-# - smart_clean_text uses pre_clean_local first, then LLM cleaning (chunked)
-# - mainrag kept compatible but with logging; still rebuilds Chroma persist dir
-#
-# NOTE:
-# - I kept function names and signatures the same (ask, mainrag, load_from_mongo, etc.)
-#   so other code (app.py and frontend) should keep working.
-# - Be careful with GOOGLE_API_KEY / MONGO_* env vars.
+# Improvements:
+# - Cached Chroma instance to avoid re-creating DB every request
+# - Stronger QA prompt: answer only from provided context, include SOURCES
+# - Trim conversation history before sending to LLM to reduce tokens
+# - Small performance tweaks (retriever k, deterministic LLM)
 # =======================================================================
 
 import os
@@ -18,6 +14,7 @@ import gc
 import time
 import json
 import logging
+import threading
 from contextlib import contextmanager
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -57,6 +54,50 @@ except Exception as e:
     embeddings = None
     llm = None
     llm_strict = None
+
+# -------------------------------
+# Chroma cache (singleton) to avoid re-creating DB each request
+# -------------------------------
+_CHROMA_INSTANCE = None
+_CHROMA_LOCK = threading.Lock()
+
+
+def _ensure_chroma_loaded():
+    global _CHROMA_INSTANCE
+    if _CHROMA_INSTANCE is not None:
+        return
+    with _CHROMA_LOCK:
+        if _CHROMA_INSTANCE is None and os.path.exists(PERSIST_DIR):
+            try:
+                _CHROMA_INSTANCE = Chroma(persist_directory=PERSIST_DIR, embedding_function=embeddings)
+                logger.info("Chroma DB loaded into cache.")
+            except Exception as e:
+                logger.warning(f"Could not load Chroma DB into cache: {e}")
+
+
+@contextmanager
+def get_chroma_db():
+    """
+    Backwards-compatible context manager. Returns cached Chroma instance if available.
+    Yields None if not present.
+    """
+    try:
+        _ensure_chroma_loaded()
+        yield _CHROMA_INSTANCE
+    finally:
+        # keep instance alive (do not delete) for reuse to save startup time
+        gc.collect()
+
+
+def _reload_chroma_cache():
+    """Force reload cached chroma (used after indexing)."""
+    global _CHROMA_INSTANCE
+    with _CHROMA_LOCK:
+        try:
+            _CHROMA_INSTANCE = Chroma(persist_directory=PERSIST_DIR, embedding_function=embeddings)
+            logger.info("Chroma cache reloaded.")
+        except Exception as e:
+            logger.warning("Failed reloading Chroma cache: %s", e)
 
 
 # =======================================================================
@@ -197,7 +238,7 @@ def smart_clean_text(raw_text: str) -> str:
 
 
 # =======================================================================
-# RERANK & QA (kept compatible)
+# RERANK & QA (kept compatible but improved)
 # =======================================================================
 def rerank_with_gemini(query: str, docs: list, top_k: int = 3):
     if not docs:
@@ -262,15 +303,16 @@ qa_template = """
 You are the **International Student AI Assistant for Universitas Padjadjaran (Unpad)**.
 Your persona is professional, warm, academic, and helpful.
 
-YOUR MISSION:
-Answer the user's question naturally using the provided DOCUMENT CONTEXT and CHAT HISTORY.
+IMPORTANT:
+- ALWAYS ANSWER IN ENGLISH.
+- Answer ONLY using the DOCUMENT CONTEXT provided. Do NOT hallucinate.
+- If the answer cannot be found in the provided DOCUMENT CONTEXT, respond exactly with:
+  "I don't know based on the provided knowledge base. Please check the source documents or ask the administrator to add relevant information."
+- At the end of your answer, include a short SOURCES section listing the document topics you used (format as bullet list).
+- Use Markdown formatting. Use headings, bold, bullet points where helpful.
+- If you present tabular/structured data, prefer Markdown tables.
 
-### **GUIDELINES:**
-1. **Language Requirement (CRITICAL):** - **ALWAYS ANSWER IN ENGLISH.**
-2. **Table Handling (CRITICAL):** - ALWAYS use Markdown Tables for structured data.
-3. **Formatting:** Use Bold, bullet points, and headings.
-
-### INPUT:
+INPUT:
 CHAT HISTORY:
 {chat_history}
 
@@ -279,57 +321,84 @@ DOCUMENT CONTEXT:
 
 USER QUESTION: {question}
 
-### YOUR ANSWER (MARKDOWN ENGLISH):
+ANSWER (MARKDOWN, ENGLISH). After the answer, include:
+
+SOURCES:
+- topic 1
+- topic 2
 """
 qa_prompt = ChatPromptTemplate.from_template(qa_template)
 
 
+def _trim_history(history: list, max_turns: int = 6):
+    """Keep last max_turns user+assistant turns (pairs) to reduce tokens."""
+    if not history:
+        return []
+    # assume history is list of {"role": "...", "content": "..."} or similar
+    return history[-max_turns:]
+
+
 def ask(question: str, history: list = []) -> str:
+    """
+    ask(question, history):
+      - history: list of dicts with keys like {'role': 'user'|'ai'|'assistant', 'content': '...'}
+    """
     if not llm or not embeddings:
         return "⚠️ AI System is initializing. Please wait a moment."
 
     try:
+        # trim history to recent few turns
+        trimmed_history = _trim_history(history, max_turns=6)
         chat_history_str = ""
-        recent_history = history[-5:]
-        for msg in recent_history:
+        for msg in trimmed_history:
             role = "Human" if msg.get("role") == "user" else "AI"
-            content = msg.get("content", "")
+            content = msg.get("content") or msg.get("text") or ""
             chat_history_str += f"{role}: {content}\n"
+
+        # ensure chroma is loaded
+        _ensure_chroma_loaded()
 
         with get_chroma_db() as db:
             if not db:
                 return "Knowledge database is not ready. Please perform 'Update RAG' in the admin panel."
 
-            retriever = db.as_retriever(search_kwargs={"k": 8})
+            # Slightly smaller k to speed up and avoid token explosion; reranker will pick top relevant
+            retriever = db.as_retriever(search_kwargs={"k": 6})
             initial_docs = retriever.invoke(question)
 
             final_docs, intent = rerank_with_gemini(question, initial_docs, top_k=3)
 
             context_text = ""
+            used_topics = []
             if intent == "QUERY" and not final_docs:
                 context_text = ""
             elif final_docs:
                 snippets = []
                 for d in final_docs:
                     txt = re.sub(r"\s+", " ", d.page_content).strip()
-                    snippets.append(f"[Source: {d.metadata.get('topic', 'General')}]\n{txt}")
+                    topic = d.metadata.get("topic", "General")
+                    used_topics.append(topic)
+                    # keep a short snippet and the topic as source label
+                    snippets.append(f"[Source: {topic}]\n{txt}")
                 context_text = "\n\n".join(snippets)
 
-            chain = qa_prompt | llm
+            chain = qa_prompt | llm_strict  # deterministic
             response = chain.invoke({"chat_history": chat_history_str, "context": context_text, "question": question})
 
-            # ---------------------------------------------------------
-            # 🔥 BAGIAN INI YANG DIGANTI (PERBAIKAN) 🔥
-            # ---------------------------------------------------------
-            # Tujuannya: Memaksa output jadi string bersih, bukan Objek/Dict
-            
+            # Defensive extraction
             if hasattr(response, 'content'):
-                return str(response.content)
+                content = str(response.content)
             elif isinstance(response, dict):
-                return response.get('content') or response.get('text') or str(response)
+                content = response.get('content') or response.get('text') or str(response)
             else:
-                return str(response)
-            # ---------------------------------------------------------
+                content = str(response)
+
+            # Try to ensure we include SOURCES: if model omitted, append best-effort sources
+            if "SOURCES:" not in content and used_topics:
+                sources_md = "\n\nSOURCES:\n" + "\n".join([f"- {t}" for t in used_topics])
+                content = content.strip() + sources_md
+
+            return content
 
     except Exception as e:
         logger.error(f"Ask Error: {e}")
@@ -339,22 +408,6 @@ def ask(question: str, history: list = []) -> str:
 # =======================================================================
 # Chroma helpers & indexing (kept behavior but with logging)
 # =======================================================================
-@contextmanager
-def get_chroma_db():
-    db = None
-    try:
-        if os.path.exists(PERSIST_DIR):
-            db = Chroma(persist_directory=PERSIST_DIR, embedding_function=embeddings)
-        yield db
-    finally:
-        if db:
-            try:
-                del db
-            except Exception:
-                pass
-            gc.collect()
-
-
 def force_cleanup_chroma():
     gc.collect()
 
@@ -420,6 +473,9 @@ def mainrag():
             persist_directory=PERSIST_DIR,
         )
 
+        # reload cached chroma instance after indexing so subsequent queries are fast
+        _reload_chroma_cache()
+
         logger.info("✅ New Vector Database created successfully!")
         return "Indexing Complete"
     except Exception as e:
@@ -429,6 +485,9 @@ def mainrag():
 
 def reset_memory():
     force_cleanup_chroma()
+    global _CHROMA_INSTANCE
+    with _CHROMA_LOCK:
+        _CHROMA_INSTANCE = None
     if os.path.exists(PERSIST_DIR):
         try:
             shutil.rmtree(PERSIST_DIR, ignore_errors=True)
