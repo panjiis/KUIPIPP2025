@@ -7,6 +7,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const routes = require('./routes/routes');
+const backupRouter = require('./routes/backupRoutes');
 
 const app = express();
 
@@ -57,6 +58,7 @@ app.use(session({
 // ========================
 app.use('/api', routes);
 app.use('/api/knowledge', require('./routes/knowledgeRoutes.js'));
+app.use('/api/backup', backupRouter);
 
 app.get('/', (req, res) => {
   res.send('Server running...');

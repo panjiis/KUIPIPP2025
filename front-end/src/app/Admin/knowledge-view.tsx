@@ -516,58 +516,70 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     fetchKnowledgeItems();
   }, [fetchKnowledgeItems]);
 
-  const downloadKnowledgeAsTxt = useCallback((items: KnowledgeItem[]) => {
-    const content = items
-      .map(
-        (item) =>
-          `TOPIC: ${item.topic}\n` +
-          `CATEGORY: ${item.category}\n` +
-          `STATUS: ${item.status}\n` +
-          `CONTENT:\n${item.content}\n` +
-          `--------------------------------------------------\n`
-      )
-      .join('\n');
+  // const downloadKnowledgeAsTxt = useCallback((items: KnowledgeItem[]) => {
+  //   const content = items
+  //     .map(
+  //       (item) =>
+  //         `TOPIC: ${item.topic}\n` +
+  //         `CATEGORY: ${item.category}\n` +
+  //         `STATUS: ${item.status}\n` +
+  //         `CONTENT:\n${item.content}\n` +
+  //         `--------------------------------------------------\n`
+  //     )
+  //     .join('\n');
 
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    link.href = url;
-    link.download = `knowledge-backup-${timestamp}.txt`;
+  //   const blob = new Blob([content], { type: 'text/plain' });
+  //   const url = window.URL.createObjectURL(blob);
+  //   const link = document.createElement('a');
+  //   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  //   link.href = url;
+  //   link.download = `knowledge-backup-${timestamp}.txt`;
 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  }, []);
+  //   document.body.appendChild(link);
+  //   link.click();
+  //   document.body.removeChild(link);
+  //   window.URL.revokeObjectURL(url);
+  // }, []);
 
   const handleUpdateRag = useCallback(async () => {
-    if (knowledgeItems.length > 0) {
-      downloadKnowledgeAsTxt(knowledgeItems);
-    } else {
+    if (knowledgeItems.length == 0) {
+      
       toast.error('Tidak ada data untuk diunduh.');
       return;
     }
 
     setIsLoading((prev) => ({ ...prev, rag: true }));
     try {
-      const res = await fetch('http://localhost:8080/do-rag');
-      if (!res.ok) throw new Error('Proses RAG gagal di server AI.');
+      const backupRes = await fetch('http://localhost:5000/api/backup/create', {
+        method: 'POST',
+        credentials: 'include', // Penting untuk kirim session cookie (username admin)
+      });
 
-      const data: RagUpdateResponse = await res.json();
+      if (!backupRes.ok) {
+        const errData = await backupRes.json();
+        throw new Error(errData.message || 'Gagal membuat backup otomatis.');
+      }
+      const ragRes = await fetch('http://localhost:8080/do-rag');
+      if (!ragRes.ok) throw new Error('Proses RAG gagal di server AI.');
+
+      // TERAPKAN TIPE DATA DI SINI:
+      const ragData: RagUpdateResponse = await ragRes.json();
+
+      // Refresh data list (agar status is_sync berubah jadi True)
       await fetchKnowledgeItems(true);
 
-      toast.success('Update RAG Selesai & Data Berhasil Diunduh', {
-        description: data.Message || 'Proses berhasil.',
+      toast.success('RAG Updated & Backup Created', {
+        description: `Backup tersimpan di server. ${ragData.Message || ''}`,
       });
+
     } catch (err) {
-      toast.error('Error saat update RAG', {
-        description: err instanceof Error ? err.message : 'Terjadi kesalahan.',
+      toast.error('Gagal Update RAG', {
+        description: err instanceof Error ? err.message : 'Terjadi kesalahan sistem.',
       });
     } finally {
       setIsLoading((prev) => ({ ...prev, rag: false }));
     }
-  }, [knowledgeItems, downloadKnowledgeAsTxt, fetchKnowledgeItems]);
+  }, [knowledgeItems, fetchKnowledgeItems]);
 
   // ===== SAVE ITEM =====
   const handleSaveItem = useCallback(
@@ -1165,22 +1177,24 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
                 placeholder='Pilih atau Ketik Kategori Baru...'
                 classNames={{
                   control: (state) =>
-                    `!bg-white/5 !border !border-[#13484f]/40 !rounded-lg !text-sm !shadow-none !p-1.5 ${
+                    // UBAH DISINI: Gunakan !bg-white/60 agar lebih solid (tidak transparan total)
+                    `!bg-white/60 !backdrop-blur-sm !border !border-[#13484f]/40 !rounded-lg !text-sm !shadow-none !p-1.5 ${
                       state.isFocused
                         ? '!ring-2 !ring-[#13484f] !border-transparent'
                         : ''
                     }`,
                   menu: () =>
-                    '!bg-white/5 !border !border-[#13484f]/40 !rounded-lg !mt-1',
+                    // UBAH DISINI: Gunakan !bg-white/95 dan !z-[9999] agar menu solid, terbaca, dan di layer paling atas
+                    '!bg-white/95 !backdrop-blur-md !border !border-[#13484f]/40 !rounded-lg !mt-1 !shadow-xl !z-[9999] relative',
                   option: (state) =>
-                    `!cursor-pointer !text-sm ${
+                    `!cursor-pointer !text-sm !py-2 !px-3 ${
                       state.isFocused
                         ? '!bg-[#13484f]/10 !text-[#13484f]'
-                        : '!bg-white/5 !text-gray-900'
+                        : '!bg-transparent !text-gray-900 hover:!bg-[#13484f]/5'
                     }`,
-                  singleValue: () => '!text-gray-900',
+                  singleValue: () => '!text-gray-900 !font-medium',
                   input: () => '!text-gray-900',
-                  placeholder: () => '!text-gray-400',
+                  placeholder: () => '!text-gray-500',
                 }}
               />
             ) : (

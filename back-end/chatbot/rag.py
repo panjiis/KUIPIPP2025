@@ -26,7 +26,7 @@ from langchain_chroma import Chroma
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain.chains import LLMChain
+from langchain_classic.chains.llm import LLMChain
 
 load_dotenv()
 

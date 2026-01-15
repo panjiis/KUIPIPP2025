@@ -16,6 +16,7 @@ import {
   Settings,
   Menu,
   Monitor,
+  History,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -31,6 +32,7 @@ import ManageAdminView from './manage-admin-view';
 import RagDetailView from './rag-detail-view';
 import SettingsView from './settings-view';
 import MonitorView from './Monitor-view';
+import BackupHistoryView from './backup-history-view';
 
 // --- INTERFACES ---
 interface ChatSession {
@@ -76,7 +78,8 @@ type ActiveView =
   | 'manageAdmin'
   | 'ragUpload'
   | 'settings'
-  | 'monitor';
+  | 'monitor'
+  | 'backupHistory';
 
 interface MonitorEvent {
   ts: number;
@@ -194,6 +197,11 @@ const AdminSidebar = ({
       view: 'knowledge' as ActiveView,
       icon: DatabaseZap,
       label: 'Knowledge Base',
+    },
+    {
+      view: 'backupHistory' as ActiveView,
+      icon: History,
+      label: 'Riwayat Backup',
     },
     {
       view: 'ragUpload' as ActiveView,
@@ -882,6 +890,8 @@ export default function AdminDashboard() {
         return <ChatHistoryView />;
       case 'knowledge':
         return <KnowledgeView onBack={() => setActiveView('history')} />;
+      case 'backupHistory':
+        return <BackupHistoryView onBack={() => setActiveView('knowledge')} />;
       case 'ragUpload':
         return (
           <RagDetailView
