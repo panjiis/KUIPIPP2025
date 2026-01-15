@@ -27,6 +27,10 @@ import {
   Cloud,
   CloudOff,
   AlertCircle,
+  Maximize2,
+  Minimize2,
+  Table as TableIcon,
+  List,
 } from 'lucide-react';
 import CreatableSelect from 'react-select/creatable';
 import { toast } from 'sonner';
@@ -79,12 +83,11 @@ interface KnowledgeDetailPanelProps {
   onToggleStatus: (id: string) => void;
   onDelete: (id: string) => void;
   isSaving: boolean;
-  // optional panel height (pixels) coming from parent measurement; when undefined, panels are auto-height
   panelHeight?: number | undefined;
 }
 
 // -----------------------------
-// Local types for react-markdown usage
+// LAZY Markdown Renderer
 // -----------------------------
 interface ReactMarkdownProps {
   children?: React.ReactNode;
@@ -92,11 +95,6 @@ interface ReactMarkdownProps {
   components?: Record<string, unknown>;
 }
 
-// -----------------------------
-// LAZY Markdown Renderer (no `any`)
-// -----------------------------
-// Dynamically import react-markdown and remark-gfm only when needed.
-// Use `unknown` and component types to avoid `any`.
 function MarkdownRenderer({ content }: { content: string }) {
   const [ReactMarkdownComponent, setReactMarkdownComponent] =
     useState<React.ComponentType<ReactMarkdownProps> | null>(null);
@@ -113,7 +111,6 @@ function MarkdownRenderer({ content }: { content: string }) {
         ]);
         if (!mounted) return;
 
-        // rmModule may export default; coerce safely to the component type
         const rmCandidate =
           (rmModule as { default?: React.ComponentType<ReactMarkdownProps> })
             .default ??
@@ -134,7 +131,6 @@ function MarkdownRenderer({ content }: { content: string }) {
     };
   }, []);
 
-  // If modules not loaded yet, show simple fallback (lighter)
   if (!ReactMarkdownComponent || !remarkGfmPlugin) {
     return (
       <div className='prose prose-sm max-w-none text-[#13484f]'>
@@ -149,11 +145,10 @@ function MarkdownRenderer({ content }: { content: string }) {
   return (
     <div className='prose prose-sm max-w-none text-[#13484f]'>
       <ReactMarkdown
-        // remarkPlugins typed as unknown[] in our prop interface
         remarkPlugins={[remarkGfm]}
         components={{
           table: ({ ...props }) => (
-            <div className='overflow-x-auto my-4 border border-[#13484f]/40 rounded-lg'>
+            <div className='overflow-x-auto my-4 border border-[#13484f]/40 rounded-lg shadow-sm'>
               <table
                 className='min-w-full divide-y divide-[#13484f]/20 text-sm'
                 {...props}
@@ -171,15 +166,18 @@ function MarkdownRenderer({ content }: { content: string }) {
             />
           ),
           tbody: ({ ...props }) => (
-            <tbody className='divide-y divide-[#13484f]/20' {...props} />
+            <tbody
+              className='divide-y divide-[#13484f]/20 bg-white/30'
+              {...props}
+            />
           ),
           tr: ({ ...props }) => (
             <tr className='hover:bg-[#13484f]/5 transition-colors' {...props} />
           ),
           td: ({ ...props }) => (
             <td
-              className='px-4 py-3 whitespace-nowrap text-[#13484f]
-                         border-r last:border-r-0 border-[#13484f]/20'
+              className='px-4 py-3 whitespace-pre-wrap text-[#13484f]
+                         border-r last:border-r-0 border-[#13484f]/20 align-top'
               {...props}
             />
           ),
@@ -229,98 +227,223 @@ function MarkdownRenderer({ content }: { content: string }) {
 }
 
 // -----------------------------
-// Modal, InputField (uses MarkdownRenderer lazily)
+// NEW: TABLE WIZARD MODAL (Styled to match Glassmorphism)
+// -----------------------------
+const TableWizardModal = ({
+  onClose,
+  onInsert,
+}: {
+  onClose: () => void;
+  onInsert: (markdown: string) => void;
+}) => {
+  const [rows, setRows] = useState(3);
+  const [cols, setCols] = useState(3);
+  const [gridData, setGridData] = useState<string[][]>(
+    Array(3)
+      .fill('')
+      .map(() => Array(3).fill(''))
+  );
+
+  useEffect(() => {
+    setGridData((prev) => {
+      const newGrid = Array(rows)
+        .fill('')
+        .map((_, rIndex) =>
+          Array(cols)
+            .fill('')
+            .map((_, cIndex) => (prev[rIndex] && prev[rIndex][cIndex]) || '')
+        );
+      return newGrid;
+    });
+  }, [rows, cols]);
+
+  const handleCellChange = (r: number, c: number, val: string) => {
+    const newGrid = [...gridData];
+    newGrid[r] = [...newGrid[r]];
+    newGrid[r][c] = val;
+    setGridData(newGrid);
+  };
+
+  const generateMarkdown = () => {
+    if (rows < 1 || cols < 1) return;
+    let md = '\n';
+    // Header
+    md +=
+      '| ' +
+      gridData[0].map((cell) => cell.trim() || 'Header').join(' | ') +
+      ' |\n';
+    // Separator
+    md += '| ' + Array(cols).fill('---').join(' | ') + ' |\n';
+    // Body
+    for (let r = 1; r < rows; r++) {
+      md +=
+        '| ' +
+        gridData[r].map((cell) => cell.trim() || ' ').join(' | ') +
+        ' |\n';
+    }
+    md += '\n';
+    onInsert(md);
+    onClose();
+  };
+
+  return (
+    <div className='fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in zoom-in-95'>
+      <div className='bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-[#13484f]/20'>
+        {/* Header */}
+        <div className='px-6 py-4 border-b border-[#13484f]/10 bg-[#13484f]/5 flex justify-between items-center'>
+          <div className='flex items-center gap-3'>
+            <div className='p-2 bg-[#13484f]/10 rounded-lg text-[#13484f]'>
+              <TableIcon className='w-5 h-5' />
+            </div>
+            <div>
+              <h3 className='font-bold text-lg text-[#13484f]'>Table Wizard</h3>
+              <p className='text-xs text-[#13484f]/70'>
+                Buat tabel seperti di Excel.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className='p-2 hover:bg-[#13484f]/10 rounded-full text-[#13484f]/60 hover:text-[#13484f] transition-colors'
+          >
+            <X className='w-5 h-5' />
+          </button>
+        </div>
+
+        {/* Toolbar */}
+        <div className='px-6 py-3 border-b border-[#13484f]/10 bg-white/50 flex items-center gap-4 text-sm'>
+          <div className='flex items-center gap-2'>
+            <label className='font-medium text-[#13484f]'>Baris:</label>
+            <input
+              type='number'
+              min='2'
+              max='20'
+              value={rows}
+              onChange={(e) => setRows(parseInt(e.target.value) || 2)}
+              className='w-16 border border-[#13484f]/30 rounded px-2 py-1 text-center bg-white text-[#13484f]'
+            />
+          </div>
+          <div className='flex items-center gap-2'>
+            <label className='font-medium text-[#13484f]'>Kolom:</label>
+            <input
+              type='number'
+              min='1'
+              max='6'
+              value={cols}
+              onChange={(e) => setCols(parseInt(e.target.value) || 1)}
+              className='w-16 border border-[#13484f]/30 rounded px-2 py-1 text-center bg-white text-[#13484f]'
+            />
+          </div>
+        </div>
+
+        {/* Grid Area */}
+        <div className='flex-1 overflow-auto p-6 bg-[#13484f]/5'>
+          <div className='inline-block min-w-full'>
+            <div
+              className='grid gap-1'
+              style={{
+                gridTemplateColumns: `50px repeat(${cols}, minmax(150px, 1fr))`,
+              }}
+            >
+              <div className='bg-transparent'></div>
+              {Array(cols)
+                .fill(0)
+                .map((_, i) => (
+                  <div
+                    key={`h-${i}`}
+                    className='text-center text-xs font-bold text-[#13484f] uppercase pb-1'
+                  >
+                    Kolom {i + 1}
+                  </div>
+                ))}
+              {gridData.map((row, rIndex) => (
+                <React.Fragment key={`row-${rIndex}`}>
+                  <div className='flex items-center justify-center text-xs font-bold text-[#13484f]/60 bg-[#13484f]/10 rounded border border-[#13484f]/10'>
+                    {rIndex === 0 ? 'HEAD' : rIndex}
+                  </div>
+                  {row.map((cell, cIndex) => (
+                    <input
+                      key={`${rIndex}-${cIndex}`}
+                      value={cell}
+                      onChange={(e) =>
+                        handleCellChange(rIndex, cIndex, e.target.value)
+                      }
+                      placeholder={
+                        rIndex === 0 ? 'Judul Header' : 'Isi data...'
+                      }
+                      className={`w-full p-2 text-sm border rounded focus:ring-2 focus:ring-[#13484f]/30 outline-none transition-all
+                          ${
+                            rIndex === 0
+                              ? 'bg-[#13484f]/10 font-bold text-[#13484f] border-[#13484f]/30'
+                              : 'bg-white text-[#13484f] border-[#13484f]/20'
+                          }`}
+                    />
+                  ))}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className='p-4 border-t border-[#13484f]/10 bg-white flex justify-end gap-3'>
+          <button
+            onClick={onClose}
+            className='px-4 py-2 text-[#13484f] hover:bg-[#13484f]/5 rounded-lg text-sm font-medium'
+          >
+            Batal
+          </button>
+          <button
+            onClick={generateMarkdown}
+            className='px-6 py-2 bg-[#13484f] hover:bg-[#0f3c42] text-white rounded-lg text-sm font-medium shadow-lg flex items-center gap-2'
+          >
+            <TableIcon className='w-4 h-4' />
+            Sisipkan Tabel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// -----------------------------
+// Modals & Overlays
 // -----------------------------
 const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
-  <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity'>
-    <div className='bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-white/20 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200'>
-      <div className='px-6 py-4 border-b border-white/10 flex justify-between items-center bg-white/5'>
+  <div className='fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity'>
+    <div className='bg-white rounded-2xl shadow-2xl border border-white/20 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200'>
+      <div className='px-6 py-4 border-b border-[#13484f]/10 flex justify-between items-center bg-[#13484f]/5'>
         <div className='flex items-center gap-3'>
-          <div className='p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg'>
-            <BookOpen className='w-5 h-5 text-blue-600 dark:text-blue-400' />
+          <div className='p-2 bg-[#13484f]/10 rounded-lg'>
+            <BookOpen className='w-5 h-5 text-[#13484f]' />
           </div>
           <div>
-            <h3 className='font-bold text-lg text-[#13484f] leading-tight'>
-              Panduan Format Teks
-            </h3>
-            <p className='text-xs text-gray-500 dark:text-neutral-400'>
-              Cheat sheet penulisan Markdown & Tabel
-            </p>
+            <h3 className='font-bold text-lg text-[#13484f]'>Panduan Format</h3>
+            <p className='text-xs text-[#13484f]/60'>Cheat sheet Markdown</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className='p-2 hover:bg-white/5 rounded-full transition-colors text-gray-400 hover:text-gray-200'
+          className='p-2 hover:bg-[#13484f]/10 rounded-full transition-colors text-[#13484f]/50 hover:text-[#13484f]'
         >
           <X className='w-5 h-5' />
         </button>
       </div>
 
-      <div className='p-6 overflow-y-auto space-y-8 bg-white/5'>
-        <div className='bg-blue-50 dark:bg-blue-950/40 p-4 rounded-xl border border-white/10 flex gap-3'>
-          <div className='shrink-0 mt-0.5'>
-            <div className='w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5'></div>
-          </div>
-          <div className='text-sm text-blue-800 dark:text-blue-200 leading-relaxed'>
-            <span className='font-semibold block mb-1'>
-              Fitur Tabel Otomatis:
-            </span>
-            Sistem RAG akan otomatis mengubah tabel PDF menjadi format Markdown
-            seperti di bawah ini. Anda juga bisa membuatnya manual.
-          </div>
-        </div>
-
-        <div>
-          <h4 className='text-xs font-bold text-gray-500 dark:text-neutral-500 uppercase tracking-wider mb-4 border-b border-white/10 pb-2'>
-            Membuat Tabel
-          </h4>
-          <div className='space-y-3 text-sm'>
-            <div className='bg-white/5 p-3 rounded-lg text-xs font-mono text-gray-200 border border-white/10 overflow-x-auto'>
-              | No | Mata Kuliah | SKS |<br />
-              |----|-------------|-----|
-              <br />
-              | 1 | Algoritma | 3 |<br />| 2 | Basis Data | 4 |
-            </div>
-            <p className='text-gray-400 text-xs'>
-              Gunakan tanda pipa <code>|</code> untuk memisahkan kolom dan tanda{' '}
-              <code>-</code> untuk garis header.
-            </p>
-          </div>
-        </div>
-
-        <div>
-          <h4 className='text-xs font-bold text-gray-500 dark:text-neutral-500 uppercase tracking-wider mb-4 border-b border-white/10 pb-2'>
-            Gaya Teks
-          </h4>
-          <div className='grid grid-cols-2 gap-x-6 gap-y-4 text-sm'>
-            <div className='text-xs font-medium text-gray-400 mb-[-8px]'>
-              Ketik Ini
-            </div>
-            <div className='text-xs font-medium text-gray-400 mb-[-8px]'>
-              Hasil
-            </div>
-
-            <code className='bg-white/5 px-3 py-2 rounded-lg text-gray-200 font-mono border border-white/10 flex items-center'>
-              **Teks Tebal**
-            </code>
-            <div className='flex items-center px-3 py-2 text-gray-200 font-bold bg-white/3 rounded-lg'>
-              Teks Tebal
-            </div>
-
-            <code className='bg-white/5 px-3 py-2 rounded-lg text-gray-200 font-mono border border-white/10 flex items-center'>
-              *Teks Miring*
-            </code>
-            <div className='flex items-center px-3 py-2 text-gray-200 italic bg-white/3 rounded-lg'>
-              Teks Miring
-            </div>
-          </div>
+      <div className='p-6 overflow-y-auto space-y-8 bg-white'>
+        {/* Konten panduan (Sama seperti sebelumnya tapi style disesuaikan) */}
+        <div className='space-y-4'>
+          <p className='text-sm text-[#13484f]'>
+            Gunakan tombol <strong>+ Table Wizard</strong> untuk membuat tabel
+            dengan mudah tanpa mengetik kode.
+          </p>
         </div>
       </div>
 
-      <div className='p-4 border-t border-white/10 bg-white/5 flex justify-end'>
+      <div className='p-4 border-t border-[#13484f]/10 bg-white flex justify-end'>
         <button
           onClick={onClose}
-          className='px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-lg transition-all transform active:scale-95'
+          className='px-6 py-2.5 bg-[#13484f] hover:bg-[#0f3c42] text-white rounded-xl text-sm font-semibold shadow-lg'
         >
           Saya Mengerti
         </button>
@@ -332,34 +455,316 @@ const MarkdownGuideModal = ({ onClose }: { onClose: () => void }) => (
 const RagOverlay = ({ visible }: { visible: boolean }) =>
   visible ? (
     <>
-      {/* Full-screen blocking overlay */}
       <div className='fixed inset-0 z-50 flex items-center justify-center'>
         <div className='absolute inset-0 bg-black/30 backdrop-blur-sm' />
-        <div className='relative z-10 max-w-lg w-[90%] bg-white/95 dark:bg-neutral-900 rounded-lg p-4 flex items-start gap-3 shadow-xl'>
+        <div className='relative z-10 max-w-lg w-[90%] bg-white rounded-lg p-4 flex items-start gap-3 shadow-xl'>
           <Loader2 className='w-5 h-5 text-[#13484f] animate-spin' />
           <div>
             <div className='font-semibold text-[#13484f]'>
               Memperbarui RAG — Mohon tunggu
             </div>
-            <div className='text-sm text-gray-600 dark:text-gray-300'>
-              Proses indexing sedang berjalan di server. Beberapa tindakan
-              dinonaktifkan sementara.
+            <div className='text-sm text-[#13484f]/70'>
+              Proses indexing sedang berjalan di server.
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Small corner banner (non-blocking visual indicator) */}
-      <div className='fixed top-4 right-4 z-60'>
-        <div className='flex items-center gap-2 bg-[#13484f] text-white px-3 py-2 rounded-md shadow-lg'>
-          <Loader2 className='w-4 h-4 animate-spin' />
-          <span className='text-sm'>Updating RAG...</span>
         </div>
       </div>
     </>
   ) : null;
 
-// InputField: if useMarkdown && not editing -> render MarkdownRenderer (which lazy-loads)
+// ===========================================
+// RICH EDITOR (With Sync Scroll, Fullscreen, & Wizard)
+// ===========================================
+
+const insertAtCursor = (
+  input: HTMLTextAreaElement,
+  textToInsert: string,
+  cursorOffset = 0
+) => {
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const text = input.value;
+  const before = text.substring(0, start);
+  const after = text.substring(end, text.length);
+
+  const newValue = before + textToInsert + after;
+
+  return {
+    value: newValue,
+    newCursorPos: start + textToInsert.length + cursorOffset,
+  };
+};
+
+const RichMarkdownEditor = ({
+  name,
+  value,
+  onChange,
+  placeholder,
+}: {
+  name: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+}) => {
+  const [viewMode, setViewMode] = useState<'write' | 'split' | 'preview'>(
+    'split'
+  );
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const isScrollingRef = useRef(false);
+
+  // --- SYNC SCROLL LOGIC ---
+  const handleScroll = useCallback(
+    (source: HTMLElement, target: HTMLElement) => {
+      if (isScrollingRef.current) return;
+
+      // Use requestAnimationFrame for smoothness
+      window.requestAnimationFrame(() => {
+        isScrollingRef.current = true;
+        const percentage =
+          source.scrollTop / (source.scrollHeight - source.clientHeight);
+
+        if (target) {
+          target.scrollTop =
+            percentage * (target.scrollHeight - target.clientHeight);
+        }
+
+        setTimeout(() => {
+          isScrollingRef.current = false;
+        }, 50);
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    const editor = textareaRef.current;
+    const preview = previewRef.current;
+
+    if (!editor || !preview) return;
+
+    const handleEditorScroll = () => handleScroll(editor, preview);
+    const handlePreviewScroll = () => handleScroll(preview, editor);
+
+    editor.addEventListener('scroll', handleEditorScroll);
+    preview.addEventListener('scroll', handlePreviewScroll);
+
+    return () => {
+      editor.removeEventListener('scroll', handleEditorScroll);
+      preview.removeEventListener('scroll', handlePreviewScroll);
+    };
+  }, [handleScroll, viewMode]);
+
+  // --- HANDLERS ---
+  const handleToolbarClick = (action: string) => {
+    if (action === 'table-wizard') {
+      setShowWizard(true);
+      return;
+    }
+
+    if (!textareaRef.current) return;
+
+    let insertion = '';
+    let offset = 0;
+
+    switch (action) {
+      case 'bold':
+        insertion = '**Teks Tebal**';
+        offset = -2;
+        break;
+      case 'italic':
+        insertion = '*Teks Miring*';
+        offset = -1;
+        break;
+      case 'h2':
+        insertion = '\n## Sub Judul\n';
+        offset = 0;
+        break;
+      case 'list':
+        insertion = '\n- Poin 1\n- Poin 2\n';
+        offset = 0;
+        break;
+    }
+
+    const result = insertAtCursor(textareaRef.current, insertion, offset);
+
+    const event = {
+      target: { name, value: result.value },
+    } as React.ChangeEvent<HTMLTextAreaElement>;
+
+    onChange(event);
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(
+          result.newCursorPos,
+          result.newCursorPos
+        );
+      }
+    }, 0);
+  };
+
+  const handleWizardInsert = (markdown: string) => {
+    if (!textareaRef.current) return;
+    const result = insertAtCursor(textareaRef.current, markdown, 0);
+
+    const event = {
+      target: { name, value: result.value },
+    } as React.ChangeEvent<HTMLTextAreaElement>;
+    onChange(event);
+  };
+
+  // --- RENDER ---
+  const containerClass = isFullscreen
+    ? 'fixed inset-0 z-50 bg-[#f8fafc] flex flex-col p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-200' // Solid light background for Zen Mode
+    : 'flex flex-col border border-[#13484f]/40 rounded-lg overflow-hidden bg-white/5 h-full min-h-[400px] transition-all duration-300'; // Glass mode for normal
+
+  return (
+    <>
+      {showWizard && (
+        <TableWizardModal
+          onClose={() => setShowWizard(false)}
+          onInsert={handleWizardInsert}
+        />
+      )}
+
+      <div className={containerClass}>
+        {/* TOOLBAR */}
+        <div className='flex flex-wrap items-center justify-between p-2 border-b border-[#13484f]/20 bg-[#13484f]/5 shrink-0 gap-2'>
+          <div className='flex gap-1 items-center'>
+            <button
+              type='button'
+              onClick={() => handleToolbarClick('bold')}
+              className='p-1.5 hover:bg-[#13484f]/10 rounded text-[#13484f] transition-colors'
+              title='Bold'
+            >
+              <strong className='font-bold text-xs font-serif'>B</strong>
+            </button>
+            <button
+              type='button'
+              onClick={() => handleToolbarClick('italic')}
+              className='p-1.5 hover:bg-[#13484f]/10 rounded text-[#13484f] transition-colors'
+              title='Italic'
+            >
+              <em className='italic text-xs font-serif'>I</em>
+            </button>
+            <div className='w-px h-5 bg-[#13484f]/20 mx-1' />
+            <button
+              type='button'
+              onClick={() => handleToolbarClick('list')}
+              className='flex items-center gap-1.5 px-3 py-1 bg-[#13484f]/10 hover:bg-[#13484f]/20 text-[#13484f] rounded-md text-xs font-bold transition-colors ml-2 border border-[#13484f]/10s'
+              title='List'
+            >
+              <List className='w-3.5 h-3.5' />
+              <span>List</span>
+            </button>
+
+            {/* BUTTON TABLE WIZARD */}
+            <button
+              type='button'
+              onClick={() => handleToolbarClick('table-wizard')}
+              className='flex items-center gap-1.5 px-3 py-1 bg-[#13484f]/10 hover:bg-[#13484f]/20 text-[#13484f] rounded-md text-xs font-bold transition-colors ml-2 border border-[#13484f]/10'
+              title='Buka Table Wizard'
+            >
+              <TableIcon className='w-3.5 h-3.5' />
+              <span>Table Wizard</span>
+            </button>
+          </div>
+
+          <div className='flex items-center gap-3'>
+            <div className='flex bg-[#13484f]/10 rounded-md p-0.5'>
+              {(['write', 'split', 'preview'] as const).map((m) => (
+                <button
+                  key={m}
+                  type='button'
+                  onClick={() => setViewMode(m)}
+                  className={`px-3 py-1 text-[10px] uppercase font-bold rounded-sm transition-all ${
+                    viewMode === m
+                      ? 'bg-white shadow-sm text-[#13484f]'
+                      : 'text-[#13484f]/60 hover:text-[#13484f]'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type='button'
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className='p-1.5 hover:bg-[#13484f]/10 rounded text-[#13484f] transition-colors'
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? (
+                <Minimize2 className='w-4 h-4' />
+              ) : (
+                <Maximize2 className='w-4 h-4' />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* EDITOR & PREVIEW AREA */}
+        <div className='flex flex-1 overflow-hidden relative'>
+          {/* LEFT: Writing Area */}
+          <div
+            className={`h-full flex flex-col transition-all duration-300 ${
+              viewMode === 'preview'
+                ? 'w-0 hidden'
+                : viewMode === 'split'
+                ? 'w-1/2 border-r border-[#13484f]/20'
+                : 'w-full'
+            }`}
+          >
+            <textarea
+              ref={textareaRef}
+              name={name}
+              value={value}
+              onChange={onChange}
+              placeholder={placeholder}
+              className='w-full h-full p-6 bg-transparent resize-none focus:outline-none text-sm font-mono leading-relaxed text-[#13484f] placeholder-[#13484f]/40'
+              spellCheck={false}
+              style={{ tabSize: 2 }}
+            />
+          </div>
+
+          {/* RIGHT: Preview Area */}
+          <div
+            ref={previewRef}
+            className={`h-full overflow-y-auto bg-white/40  transition-all duration-300 ${
+              viewMode === 'write'
+                ? 'w-0 hidden'
+                : viewMode === 'split'
+                ? 'w-1/2'
+                : 'w-full'
+            }`}
+          >
+            <div className='mb-4 text-[10px] font-bold text-[#13484f]/50 uppercase tracking-widest border-b border-[#13484f]/10 pb-2 select-none sticky top-0 bg-transparent backdrop-blur-sm z-10'>
+              Live Preview, Perhatikan lagi Bagian kiri dengan kanan, karena ada perbedaan FPS antara Raw Data dengan React Markdown maka sinkronisasi posisi scroll mungkin tidak 100% akurat 
+            </div>
+            <div className='px-7 pb-6'>
+              <Suspense
+                fallback={
+                  <Loader2 className='animate-spin w-5 h-5 text-[#13484f]' />
+                }
+              >
+                <MarkdownRenderer content={value || '_Belum ada konten..._'} />
+              </Suspense>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// -----------------------------
+// Modified InputField (Supports Rich Editor)
+// -----------------------------
 const InputField = ({
   label,
   name,
@@ -383,19 +788,28 @@ const InputField = ({
   placeholder?: string;
   useMarkdown?: boolean;
 }) => (
-  <div className='mb-4'>
+  <div className='mb-4 flex flex-col'>
     <label className='block text-sm font-medium text-[#13484f] mb-1'>
       {label}
     </label>
     {isEditing ? (
-      type === 'textarea' ? (
+      type === 'textarea' && useMarkdown ? (
+        <div className='flex-1'>
+          <RichMarkdownEditor
+            name={name}
+            value={value}
+            onChange={onChange as React.ChangeEventHandler<HTMLTextAreaElement>}
+            placeholder={placeholder}
+          />
+        </div>
+      ) : type === 'textarea' ? (
         <textarea
           name={name}
           value={value}
           onChange={onChange}
           rows={rows}
           placeholder={placeholder}
-          className='w-full bg-white/5 border border-[#13484f]/40 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[#13484f]/30 focus:border-transparent transition-colors font-mono text-black placeholder-gray-400'
+          className='w-full bg-white/5 border border-[#13484f]/40 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[#13484f]/30 focus:border-transparent transition-colors font-mono text-[#13484f] placeholder-[#13484f]/40'
         />
       ) : (
         <input
@@ -404,11 +818,11 @@ const InputField = ({
           value={value}
           onChange={onChange}
           placeholder={placeholder}
-          className='w-full bg-white/5 border border-[#13484f]/40 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[#13484f]/30 focus:border-transparent transition-colors text-black placeholder-gray-400'
+          className='w-full bg-white/5 border border-[#13484f]/40 rounded-lg p-3 text-sm focus:ring-2 focus:ring-[#13484f]/30 focus:border-transparent transition-colors text-[#13484f] placeholder-[#13484f]/40'
         />
       )
     ) : (
-      <div className='bg-white/5 p-4 rounded-lg text-sm leading-relaxed border border-[#13484f]/40 text-black overflow-x-auto backdrop-blur-sm'>
+      <div className='bg-white/5 p-4 rounded-lg text-sm leading-relaxed border border-[#13484f]/40 text-[#13484f] overflow-x-auto backdrop-blur-sm max-h-[500px] overflow-y-auto'>
         {useMarkdown ? (
           <Suspense
             fallback={<div className='text-sm text-[#13484f]'>{value}</div>}
@@ -416,7 +830,7 @@ const InputField = ({
             <MarkdownRenderer content={value} />
           </Suspense>
         ) : (
-          <span className='whitespace-pre-wrap text-black'>{value}</span>
+          <span className='whitespace-pre-wrap text-[#13484f]'>{value}</span>
         )}
       </div>
     )}
@@ -440,37 +854,30 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
 
-  // panelHeight will be calculated on mount and resize for lg screens (>=1024)
   const [panelHeight, setPanelHeight] = useState<number | undefined>(undefined);
 
   const calculatePanelHeight = useCallback(() => {
     const vw = window.innerWidth;
-    // only lock heights for laptop/pc (lg and above)
     if (vw < 1024) {
       setPanelHeight(undefined);
       return;
     }
-
-    // compute available height inside root: root height or viewport height
     const rootRect = rootRef.current?.getBoundingClientRect();
     const headerRect = headerRef.current?.getBoundingClientRect();
 
     const availableHeight =
       (rootRect?.height ?? window.innerHeight) - (headerRect?.height ?? 0);
-    // subtract some padding/margins used in layout (approx)
-    const paddingSubtract = 32 + 24; // main vertical paddings + section gaps
-    const computed = Math.max(360, availableHeight - paddingSubtract); // give minimum height
+    const paddingSubtract = 32 + 24;
+    const computed = Math.max(360, availableHeight - paddingSubtract);
     setPanelHeight(computed);
   }, []);
 
   useEffect(() => {
-    // initial
     calculatePanelHeight();
     const handler = () => {
       calculatePanelHeight();
     };
     window.addEventListener('resize', handler);
-    // sometimes orientation change or toolbar changes require a brief delay
     const deb = setTimeout(() => calculatePanelHeight(), 120);
     return () => {
       window.removeEventListener('resize', handler);
@@ -478,7 +885,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
     };
   }, [calculatePanelHeight]);
 
-  // ===== FETCH DATA (stable callback)
+  // ===== FETCH DATA
   const fetchKnowledgeItems = useCallback(async (silent = false) => {
     try {
       if (!silent) setIsLoading((prev) => ({ ...prev, list: true }));
@@ -792,7 +1199,6 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
         {/* Left list column */}
         <div
           className='lg:col-span-1 glass-card h-auto flex flex-col overflow-hidden'
-          // when panelHeight is available (lg screens), apply it as inline height so left and right align
           style={panelHeight ? { height: panelHeight } : undefined}
         >
           <div className='p-4 border-b border-white/10 bg-white/5'>
@@ -818,7 +1224,6 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
               </div>
             ) : filteredItems.length > 0 ? (
               filteredItems.map((item) => {
-                // show short preview only to reduce heavy DOM for long contents
                 const preview =
                   item.content && item.content.length > 180
                     ? item.content.slice(0, 180) + '...'
@@ -872,7 +1277,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
           </div>
         </div>
 
-        {/* Right detail column (spans two cols on lg) */}
+        {/* Right detail column */}
         <div
           className='lg:col-span-2 glass-card h-auto flex flex-col overflow-hidden'
           style={panelHeight ? { height: panelHeight } : undefined}
@@ -894,7 +1299,7 @@ export default function KnowledgeView({ onBack }: KnowledgeViewProps) {
   );
 }
 
-// ===== DETAIL PANEL COMPONENT (memoized) =====
+// ===== DETAIL PANEL COMPONENT =====
 const initialFormData = {
   topic: '',
   content: '',
@@ -920,7 +1325,6 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
 
-  // FETCH KATEGORI only when editing/adding
   useEffect(() => {
     if (isAdding || isEditing) {
       setIsLoadingCategories(true);
@@ -1038,7 +1442,7 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
                 </button>
                 <button
                   onClick={onCancel}
-                  className='px-3 py-1.5 bg-white/5 text-gray-200 rounded-lg text-sm font-medium hover:bg-white/6 transition-colors flex items-center gap-1'
+                  className='px-3 py-1.5 bg-white/5 text-[#13484f] rounded-lg text-sm font-medium hover:bg-white/10 transition-colors flex items-center gap-1 border border-[#13484f]/20'
                 >
                   <CornerDownLeft className='w-3 h-3' />
                   <span>Batal</span>
@@ -1088,12 +1492,11 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
         </header>
 
         <div
-          className='flex-1 overflow-y-auto p-6 bg-white/5 space-y-4'
-          // allow parent to drive height; when panelHeight undefined, flex-1 + auto behavior
+          className='flex-1 overflow-y-auto p-6 bg-white/5 space-y-4 flex flex-col'
           style={panelHeight ? { maxHeight: panelHeight - 24 } : undefined}
         >
           {!isAdding && item && (
-            <div className='flex flex-wrap gap-3 mb-4'>
+            <div className='flex flex-wrap gap-3 mb-4 shrink-0'>
               <div
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 ${
                   item.status === 'ACTIVE'
@@ -1131,16 +1534,18 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
             </div>
           )}
 
-          <InputField
-            label='Judul/Topik'
-            name='topic'
-            value={formData.topic}
-            onChange={handleChange}
-            isEditing={isAdding || isEditing}
-            placeholder='Contoh: Beasiswa DARMASISWA'
-          />
+          <div className='shrink-0'>
+            <InputField
+              label='Judul/Topik'
+              name='topic'
+              value={formData.topic}
+              onChange={handleChange}
+              isEditing={isAdding || isEditing}
+              placeholder='Contoh: Beasiswa DARMASISWA'
+            />
+          </div>
 
-          <div className='mb-4'>
+          <div className='mb-4 shrink-0'>
             <label className='block text-sm font-medium text-[#13484f] mb-1'>
               Kategori
             </label>
@@ -1176,21 +1581,21 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
                     `!cursor-pointer !text-sm ${
                       state.isFocused
                         ? '!bg-[#13484f]/10 !text-[#13484f]'
-                        : '!bg-white/5 !text-gray-900'
+                        : '!bg-white/5 !text-[#13484f]'
                     }`,
-                  singleValue: () => '!text-gray-900',
-                  input: () => '!text-gray-900',
-                  placeholder: () => '!text-gray-400',
+                  singleValue: () => '!text-[#13484f]',
+                  input: () => '!text-[#13484f]',
+                  placeholder: () => '!text-[#13484f]/50',
                 }}
               />
             ) : (
-              <div className='bg-white/5 p-4 rounded-lg text-sm whitespace-pre-wrap leading-relaxed border border-[#13484f]/40 text-black'>
+              <div className='bg-white/5 p-4 rounded-lg text-sm whitespace-pre-wrap leading-relaxed border border-[#13484f]/40 text-[#13484f]'>
                 {formData.category}
               </div>
             )}
           </div>
 
-          <div className='relative'>
+          <div className='flex-1 flex flex-col min-h-[400px]'>
             <InputField
               label='Konten Pengetahuan'
               name='content'
@@ -1199,18 +1604,19 @@ const KnowledgeDetailPanel = React.memo(function KnowledgeDetailPanel({
               isEditing={isAdding || isEditing}
               type='textarea'
               rows={15}
-              placeholder='Gunakan format Markdown: **Tebal**, - Poin, dsb.'
+              placeholder='Gunakan toolbar di atas untuk tabel & format.'
               useMarkdown={true}
             />
             {(isAdding || isEditing) && (
-              <div className='text-xs text-gray-400 mt-1 flex justify-end'>
-                * Tekan tombol &quot;Panduan&quot; di atas untuk bantuan format.
+              <div className='text-xs text-[#13484f]/60 mt-1 flex justify-end shrink-0'>
+                * Tips: Gunakan tombol Table Wizard & Fullscreen di pojok kanan
+                editor.
               </div>
             )}
           </div>
 
           {item && !isAdding && (
-            <div className='mt-4 text-xs text-[#13484f] flex justify-between'>
+            <div className='mt-4 text-xs text-[#13484f] flex justify-between shrink-0'>
               <span>
                 Terakhir Diperbarui: {new Date(item.updatedAt).toLocaleString()}
               </span>
